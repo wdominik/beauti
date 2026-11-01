@@ -1,0 +1,129 @@
+# Continuous integration: formatting and lint, then native builds with CTest on
+# macOS (arm64) and Windows (x64, CPU and TensorRT RTX variants). Actions are pinned to
+# commit SHAs; Dependabot (.github/dependabot.yml) proposes updates.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Format, lint, provenance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - name: Install the pinned developer tools (uv.lock)
+        run: uv sync --locked --group dev
+      - name: ruff format
+        run: uv run ruff format --check .
+      - name: ruff check
+        run: uv run ruff check .
+      - name: mypy
+        run: uv run mypy
+      - name: clang-format
+        run: git ls-files 'src/*.cpp' 'src/*.h' 'tests/*.cpp' 'tools/benchmarks/*.cpp' | xargs uv run clang-format --dry-run -Werror
+      - name: actionlint
+        run: uv run actionlint
+      - name: Python tests that need no build output
+        run: uv run pytest -m "not needs_bundle and not needs_gpu"
+      - name: Source provenance snapshot
+        run: uv run beauti-verify-provenance
+
+  macos:
+    name: macOS arm64
+    runs-on: xcode-27  # macOS 27 with Xcode 27 (images are named by Xcode major)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - name: Require the macOS 27 SDK (Core AI, docs/decisions/0018)
+        run: |
+          sdk="$(xcrun --show-sdk-version)"
+          echo "macOS SDK $sdk"
+          if [ "${sdk%%.*}" -lt 27 ]; then echo "::error::Beauti needs the macOS 27 SDK; this runner has $sdk"; exit 1; fi
+      - name: Install the pinned developer tools (uv.lock)
+        run: |
+          uv sync --locked --group dev
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Cache pinned dependency archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/downloads
+          key: deps-macos-${{ hashFiles('buildspec.json') }}
+      - name: Configure, build, and test (CMake workflow preset)
+        run: cmake --workflow --preset macos-ci
+      - name: CPU reference library and Python tests
+        run: |
+          beauti-build-reference
+          pytest -m "not needs_bundle and not needs_gpu"
+      - name: Build environment summary
+        run: |
+          echo "## macOS build" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E 'CMAKE_(CXX_COMPILER_VERSION|OSX_DEPLOYMENT_TARGET|GENERATOR):' build/macos/CMakeCache.txt >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: beauti-macos-arm64-${{ github.sha }}
+          path: |
+            build/macos/beauti
+            build/macos/beauti-bench
+            build/macos/libbeauti_coreai.dylib
+          retention-days: 7
+
+  windows:
+    name: Windows x64 (${{ matrix.device }})
+    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [cpu, tensorrt]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - name: Install the pinned developer tools (uv.lock)
+        run: |
+          uv sync --locked --group dev
+          echo "$PWD\.venv\Scripts" >> "$env:GITHUB_PATH"
+      - name: Cache pinned dependency archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .cache/windows/downloads
+            .cache/downloads
+          key: deps-windows-${{ matrix.device }}-${{ hashFiles('buildspec.json') }}
+      - name: Prepare the OBS SDK and ONNX Runtime
+        run: beauti-prepare-windows --device ${{ matrix.device }}
+      - name: Configure, build, and test (CMake workflow preset)
+        run: cmake --workflow --preset ${{ matrix.device == 'cpu' && 'windows-cpu-ci' || 'windows-ci' }}
+      - name: Python tests that need no build output
+        run: pytest -m "not needs_bundle and not needs_gpu"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: beauti-windows-x64-${{ matrix.device }}-${{ github.sha }}
+          path: |
+            build/windows-${{ matrix.device }}/Release/beauti.dll
+            build/windows-${{ matrix.device }}/Release/beauti-bench.exe
+          retention-days: 7

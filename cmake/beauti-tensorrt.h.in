@@ -1,0 +1,7 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Generated from buildspec.json; ordered for restricted application-local loading.
+#pragma once
+#include <array>
+#define BEAUTI_TENSORRT_DRIVER_MINIMUM @BEAUTI_TENSORRT_DRIVER_MINIMUM@
+inline constexpr std::array kTensorRTLibraries = {@BEAUTI_TENSORRT_LIBRARIES@};
+inline constexpr std::array kTensorRTLibraryBytes = {@BEAUTI_TENSORRT_LIBRARY_BYTES@};

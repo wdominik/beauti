@@ -1,0 +1,43 @@
+# Prepared models, SDKs, fixtures, and build output
+/.cache/
+/.venv/
+/build/
+/dist/
+CMakeUserPresets.json
+
+# Python and tool caches
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Editors and operating systems
+.DS_Store
+*.user
+.vscode/
+.idea/
+
+# Test media and raw frames never enter the repository; published images go in
+# docs/images/ only.
+*.png
+*.jpg
+*.jpeg
+*.heic
+*.webp
+*.gif
+*.bmp
+*.tif
+*.tiff
+*.mov
+*.mp4
+*.mkv
+*.avi
+*.webm
+*.rgba
+*.raw
+*.f32
+!/docs/images/*.png
+!/docs/images/*.jpg
+!/docs/images/*.webp
+!/docs/images/*.gif

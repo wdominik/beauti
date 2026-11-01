@@ -1,0 +1,14 @@
+ModelScope skin retouching model
+
+Beauti uses the retouching U-Net published by Alibaba Tongyi Lab (iic) on ModelScope
+under the Apache License 2.0; see ModelScope-Apache-2.0.txt.
+https://www.modelscope.cn/models/iic/cv_unet_skin_retouching_torch/
+
+Changes made by Beauti: the PyTorch checkpoint is exported to ONNX (opset 17) with
+fixed input shapes, selected outputs, basic ONNX optimizations, and zero-padding
+no-ops removed. Beauti also creates FP16 and 384 px variants, and on macOS Core AI
+assets whose decoder upsampling is rewritten as an equivalent matrix product. The two
+architecture files in third_party/modelscope_unet/ are unchanged.
+
+Acquisition and runtime SHA-256 identities are in models/sources.json and
+models/manifest.json in the included source.

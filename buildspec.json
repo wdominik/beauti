@@ -1,0 +1,87 @@
+{
+  "name": "beauti",
+  "description": "Pinned build-time dependencies. CMake and the Python build tools verify each archive by SHA-256 before use.",
+  "dependencies": {
+    "obs-studio": {
+      "version": "33.0.0",
+      "sources": {
+        "url": "https://github.com/obsproject/obs-studio/releases/download/33.0.0/OBS-Studio-33.0.0-Sources.tar.gz",
+        "sha256": "c1ae3c98c1bb70ebdced33e894a526fcbbbda9bfd95806970a3fc31f74b08f6c",
+        "archive_root": "obs-studio-33.0.0-sources"
+      },
+      "macos-app": {
+        "url": "https://cdn-fastly.obsproject.com/downloads/obs-studio-33.0.0-macos-apple.dmg",
+        "sha256": "b36f4e9da5f2f17c733ba711c8fe0656d6b0cd573cfe96eeb3e68325cffef739"
+      },
+      "windows": {
+        "url": "https://github.com/obsproject/obs-studio/releases/download/33.0.0/OBS-Studio-33.0.0-Windows-x64.zip",
+        "sha256": "3369a3ecd67b5669a8a08d77357f87cc786d1fba42fbbd1054d841a69f6271a7"
+      }
+    },
+    "simde": {
+      "version": "0.8.2",
+      "url": "https://codeload.github.com/simd-everywhere/simde/tar.gz/refs/tags/v0.8.2",
+      "sha256": "ed2a3268658f2f2a9b5367628a85ccd4cf9516460ed8604eed369653d49b25fb",
+      "archive_root": "simde-0.8.2"
+    },
+    "catch2": {
+      "version": "3.16.1",
+      "header": {
+        "url": "https://github.com/catchorg/Catch2/releases/download/v3.16.1/catch_amalgamated.hpp",
+        "sha256": "f354576b9fe94f110dc4cc2210e6288c8d4915132f9ff97a57e61798eb9ad541"
+      },
+      "source": {
+        "url": "https://github.com/catchorg/Catch2/releases/download/v3.16.1/catch_amalgamated.cpp",
+        "sha256": "51cbc6feeb16cdc8f37d757161526983409b4a82f96463f886e65528a2eff39b"
+      }
+    },
+    "onnxruntime": {
+      "api": 31,
+      "macos-arm64": {
+        "version": "1.31.0",
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-osx-arm64-1.31.0.tgz",
+        "sha256": "1031b36dd3bdaa8d976a6130d9cf2a05e9be320b93ae804f8427b91dc3432afc",
+        "archive_root": "onnxruntime-osx-arm64-1.31.0"
+      },
+      "windows-x64": {
+        "version": "1.31.0",
+        "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-win-x64-1.31.0.zip",
+        "sha256": "3958d8a44984160692c1b4ffd0de3cb48f8c39f9d34bb31e433db06e30b82195",
+        "archive_root": "onnxruntime-win-x64-1.31.0"
+      }
+    },
+    "tensorrt-rtx": {
+      "version": "0.5.0",
+      "runtime_version": "1.7",
+      "cuda_major": 13,
+      "driver_api_minimum": 13000,
+      "driver_requirement": "NVIDIA RTX Ampere or newer; CUDA 13-capable driver (580.88 or newer, subject to GPU/runtime requirements)",
+      "provider": "NvTensorRTRTXExecutionProvider",
+      "files": {
+        "tensorrt-rtx": {
+          "version": "0.5.0",
+          "url": "https://github.com/NVIDIA/TensorRT-RTX-EP-ABI/releases/download/v0.5.0/TensorRT-RTX-EP-ABI-v0.5.0-cu13.zip",
+          "sha256": "41469e0b21cabf997cbee3638d9aa4400ae19601667e18ccf6628a960fb0aca3",
+          "dlls": [
+            "tensorrt_rtx_1_7.dll",
+            "tensorrt_onnxparser_rtx_1_7.dll",
+            "tensorrt_plugins.dll",
+            "onnxruntime_providers_nv_tensorrt_rtx.dll"
+          ],
+          "dll_bytes": {
+            "tensorrt_rtx_1_7.dll": 229312112,
+            "tensorrt_onnxparser_rtx_1_7.dll": 2329200,
+            "tensorrt_plugins.dll": 51289200,
+            "onnxruntime_providers_nv_tensorrt_rtx.dll": 2392176
+          },
+          "dll_sha256": {
+            "tensorrt_rtx_1_7.dll": "7b8a06d4b66dfe7da7f1ff48a994ad9dcf107cd28b4822d6f25453528c0db6dd",
+            "tensorrt_onnxparser_rtx_1_7.dll": "b38d00d107dae534f1fc855df5bc1a04fc0ae25135b5b10d17f9b30cc4c9c411",
+            "tensorrt_plugins.dll": "50a345da5f5f9ecc214410f65964513f37e9c30e8bfe55eeb9f744bc0db95692",
+            "onnxruntime_providers_nv_tensorrt_rtx.dll": "efbf29728e5dbdc148369640cf2eac7215c05deff256484bd0a61d8a96d140a7"
+          }
+        }
+      }
+    }
+  }
+}

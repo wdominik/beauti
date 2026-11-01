@@ -1,0 +1,8 @@
+Additional permission under GNU GPL version 3 section 7
+
+If you modify this Program, or any covered work, by linking or combining it with the
+NVIDIA TensorRT RTX runtime (or a modified version of that runtime), containing parts
+covered by the terms of NVIDIA's license for that runtime, the licensors of this
+Program grant you additional permission to convey the resulting work. Corresponding
+Source for a non-source form of such a combination need not include the source code
+of the NVIDIA runtime.

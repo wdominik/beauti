@@ -1,0 +1,155 @@
+# Builds the macOS and Windows packages and collects them in a draft GitHub release.
+#
+# A tag vX.Y.Z runs everything and ends in a draft, which a person reads and publishes.
+# "Run workflow" builds the same packages as artifacts and creates nothing, which tests
+# the packaging without a tag. A tag must match VERSION. Models come from the release
+# named by `beauti-model-archive tag`; see docs/RELEASE.md. Actions are pinned to commit
+# SHAs, and each job has only the permissions it needs.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  version:
+    name: The tag is the version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: read
+        run: |
+          version="$(tr -d '\r\n' < VERSION)"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::The tag is $GITHUB_REF_NAME but VERSION says $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  macos:
+    name: macOS arm64
+    needs: version
+    runs-on: xcode-27 # macOS 27 with Xcode 27 (images are named by Xcode major)
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - name: Install the pinned developer tools (uv.lock)
+        run: uv sync --locked --group dev
+      - name: Fetch the prepared models
+        run: |
+          gh release download "$(uv run beauti-model-archive tag)" --pattern "$(uv run beauti-model-archive asset)" --output "$RUNNER_TEMP/models.zip"
+          uv run beauti-model-archive unpack "$RUNNER_TEMP/models.zip"
+      - name: Build, test, and stage the bundle
+        run: uv run beauti-build
+      - name: Package
+        run: uv run beauti-package dist/beauti.plugin --output-dir dist/release
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos
+          path: dist/release/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  windows:
+    name: Windows x64
+    needs: version
+    runs-on: windows-2025
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - name: Install the pinned developer tools (uv.lock)
+        run: uv sync --locked --group dev
+      - name: Fetch the prepared models
+        run: |
+          gh release download "$(uv run beauti-model-archive tag)" --pattern "$(uv run beauti-model-archive asset)" --output "$RUNNER_TEMP/models.zip"
+          uv run beauti-model-archive unpack "$RUNNER_TEMP/models.zip"
+      - name: Prepare the OBS SDK and ONNX Runtime
+        run: uv run beauti-prepare-windows --device tensorrt
+      - name: Build, test, and stage the bundle
+        run: |
+          root="$(uv run python -c "import json; print(json.load(open('buildspec.json'))['dependencies']['onnxruntime']['windows-x64']['archive_root'], end='')")"
+          uv run beauti-build --platform windows --obs-sdk .cache/windows/sdk --ort-root ".cache/windows/ort_cpu/$root"
+      - name: Package
+        run: uv run beauti-package dist/tensorrt/beauti --output-dir dist/release
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows
+          path: dist/release/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  release:
+    name: Draft release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [version, macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the draft release
+      id-token: write # sign the build provenance
+      attestations: write # store the build provenance
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist/release
+          merge-multiple: true
+      - name: Source archive and release notes
+        run: |
+          uv sync --locked --group dev
+          uv run beauti-export-source "dist/release/Beauti-Source-$VERSION.zip"
+          uv run beauti-release-notes "$VERSION" "$RUNNER_TEMP/notes.md"
+      # GitHub offers attestations to public repositories on every plan.
+      - name: Attest the build provenance
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/release/*.zip
+      - name: Draft
+        run: |
+          ls -l dist/release
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "Beauti $VERSION" \
+            --notes-file "$RUNNER_TEMP/notes.md" dist/release/*

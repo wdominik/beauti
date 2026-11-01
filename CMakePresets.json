@@ -1,0 +1,343 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "macos",
+      "displayName": "Beauti \u00b7 macOS arm64",
+      "description": "Fetches pinned OBS headers, SIMDe, and ONNX Runtime from buildspec.json; links against /Applications/OBS.app or the pinned OBS release image.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "27.0",
+        "BUILD_TESTING": "ON",
+        "BEAUTI_ENABLE_TENSORRT": "OFF"
+      }
+    },
+    {
+      "name": "windows",
+      "displayName": "Beauti \u00b7 Windows x64 NVIDIA",
+      "description": "Requires uv run beauti-prepare-windows --device tensorrt first.",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/windows-tensorrt",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "BEAUTI_ENABLE_TENSORRT": "ON"
+      }
+    },
+    {
+      "name": "windows-cpu",
+      "inherits": "windows",
+      "displayName": "Beauti \u00b7 Windows x64 CPU validation",
+      "description": "Requires uv run beauti-prepare-windows --device cpu first.",
+      "binaryDir": "${sourceDir}/build/windows-cpu",
+      "cacheVariables": {
+        "BEAUTI_ENABLE_TENSORRT": "OFF"
+      }
+    },
+    {
+      "name": "macos-ci",
+      "inherits": "macos",
+      "displayName": "Beauti \u00b7 macos (CI)",
+      "description": "CI variant: warnings are errors (CMAKE_COMPILE_WARNING_AS_ERROR).",
+      "cacheVariables": {
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON"
+      }
+    },
+    {
+      "name": "macos-asan",
+      "inherits": "macos",
+      "displayName": "Beauti \u00b7 macOS arm64 (AddressSanitizer and UndefinedBehaviorSanitizer)",
+      "description": "AddressSanitizer and UndefinedBehaviorSanitizer on every target, optimized with debug info; for CTest, beauti-gpu-check, and the libobs fixture runner. Never package this build.",
+      "binaryDir": "${sourceDir}/build/macos-asan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "BEAUTI_SANITIZER": "address"
+      }
+    },
+    {
+      "name": "macos-tsan",
+      "inherits": "macos",
+      "displayName": "Beauti \u00b7 macOS arm64 (ThreadSanitizer)",
+      "description": "ThreadSanitizer on every target, optimized with debug info; for CTest, beauti-gpu-check, and the libobs fixture runner. Never package this build.",
+      "binaryDir": "${sourceDir}/build/macos-tsan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "BEAUTI_SANITIZER": "thread"
+      }
+    },
+    {
+      "name": "windows-ci",
+      "inherits": "windows",
+      "displayName": "Beauti \u00b7 windows (CI)",
+      "description": "CI variant: warnings are errors (CMAKE_COMPILE_WARNING_AS_ERROR).",
+      "cacheVariables": {
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON"
+      }
+    },
+    {
+      "name": "windows-cpu-ci",
+      "inherits": "windows-cpu",
+      "displayName": "Beauti \u00b7 windows-cpu (CI)",
+      "description": "CI variant: warnings are errors (CMAKE_COMPILE_WARNING_AS_ERROR).",
+      "cacheVariables": {
+        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "macos",
+      "configurePreset": "macos"
+    },
+    {
+      "name": "windows",
+      "configurePreset": "windows",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-cpu",
+      "configurePreset": "windows-cpu",
+      "configuration": "Release"
+    },
+    {
+      "name": "macos-ci",
+      "configurePreset": "macos-ci"
+    },
+    {
+      "name": "macos-asan",
+      "configurePreset": "macos-asan"
+    },
+    {
+      "name": "macos-tsan",
+      "configurePreset": "macos-tsan"
+    },
+    {
+      "name": "windows-ci",
+      "configurePreset": "windows-ci",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-cpu-ci",
+      "configurePreset": "windows-cpu-ci",
+      "configuration": "Release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "macos",
+      "configurePreset": "macos",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows",
+      "configurePreset": "windows",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-cpu",
+      "configurePreset": "windows-cpu",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-ci",
+      "configurePreset": "macos-ci",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-asan",
+      "configurePreset": "macos-asan",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-tsan",
+      "configurePreset": "macos-tsan",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-ci",
+      "configurePreset": "windows-ci",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-cpu-ci",
+      "configurePreset": "windows-cpu-ci",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "macos",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "macos"
+        },
+        {
+          "type": "build",
+          "name": "macos"
+        },
+        {
+          "type": "test",
+          "name": "macos"
+        }
+      ]
+    },
+    {
+      "name": "windows",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "windows"
+        },
+        {
+          "type": "build",
+          "name": "windows"
+        },
+        {
+          "type": "test",
+          "name": "windows"
+        }
+      ]
+    },
+    {
+      "name": "windows-cpu",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "windows-cpu"
+        },
+        {
+          "type": "build",
+          "name": "windows-cpu"
+        },
+        {
+          "type": "test",
+          "name": "windows-cpu"
+        }
+      ]
+    },
+    {
+      "name": "macos-ci",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "macos-ci"
+        },
+        {
+          "type": "build",
+          "name": "macos-ci"
+        },
+        {
+          "type": "test",
+          "name": "macos-ci"
+        }
+      ]
+    },
+    {
+      "name": "macos-asan",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "macos-asan"
+        },
+        {
+          "type": "build",
+          "name": "macos-asan"
+        },
+        {
+          "type": "test",
+          "name": "macos-asan"
+        }
+      ]
+    },
+    {
+      "name": "macos-tsan",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "macos-tsan"
+        },
+        {
+          "type": "build",
+          "name": "macos-tsan"
+        },
+        {
+          "type": "test",
+          "name": "macos-tsan"
+        }
+      ]
+    },
+    {
+      "name": "windows-ci",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "windows-ci"
+        },
+        {
+          "type": "build",
+          "name": "windows-ci"
+        },
+        {
+          "type": "test",
+          "name": "windows-ci"
+        }
+      ]
+    },
+    {
+      "name": "windows-cpu-ci",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "windows-cpu-ci"
+        },
+        {
+          "type": "build",
+          "name": "windows-cpu-ci"
+        },
+        {
+          "type": "test",
+          "name": "windows-cpu-ci"
+        }
+      ]
+    }
+  ]
+}

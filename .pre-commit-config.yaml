@@ -1,0 +1,51 @@
+# Hooks run in pre-commit's own environments with the same pinned versions as the
+# dev dependency group in pyproject.toml, so they work on macOS, Linux, and Windows.
+# Setup: uv sync --group dev && uv run pre-commit install
+repos:
+  - repo: local
+    hooks:
+      - id: clang-format
+        name: clang-format (C++)
+        language: python
+        additional_dependencies: ['clang-format==23.1.3']
+        entry: clang-format --dry-run -Werror
+        files: ^(src|tests|tools/benchmarks)/.*\.(cpp|h|mm)$
+      - id: ruff-format
+        name: ruff format (Python)
+        language: python
+        additional_dependencies: ['ruff==0.17.2']
+        entry: ruff format --check
+        types: [python]
+      - id: ruff-check
+        name: ruff check (Python)
+        language: python
+        additional_dependencies: ['ruff==0.17.2']
+        entry: ruff check
+        types: [python]
+      - id: mypy
+        name: mypy (beauti_tools)
+        language: python
+        additional_dependencies: ['mypy==2.4.0']
+        entry: mypy
+        pass_filenames: false
+        files: ^(tools/beauti_tools/.*\.py|pyproject\.toml)$
+      - id: actionlint
+        name: actionlint (GitHub workflows)
+        language: python
+        additional_dependencies: ['actionlint-py==1.7.12.25']
+        entry: actionlint
+        files: ^\.github/workflows/.*\.ya?ml$
+      - id: locale-catalogs
+        name: locale catalogs complete (data/locale)
+        language: python
+        entry: python tests/locale/check_locales.py
+        pass_filenames: false
+        files: ^(data/locale/.*\.ini|tests/locale/check_locales\.py)$
+      - id: us-english
+        name: US English spellings (CONTRIBUTING.md, Language)
+        language: pygrep
+        args: [--ignore-case]
+        entry: >-
+          \b(colour|behaviour|optimis(e|ed|es|ing|ation)|initialis(e|ed|ation)|serialis(e|ed|ation)|normalis(e|ed|ation)|recognis(e|ed|es|ing)|analys(e|ed|ing|er)|centre|licence|grey|catalogue|artefact|favour|honour|cancell(ed|ing)|modelling|labell(ed|ing)|fulfil|programme|whilst|amongst|defence|practise|synchronis(e|ed|ation)|minimis(e|ed|ation)|maximis(e|ed|ation)|organis(e|ed|ation)|prioritis(e|ed|ation)|utilis(e|ed|ation)|customis(e|ed|ation)|summaris(e|ed)|stabilis(e|ed|ation)|quantis(e|ed|ation)|visualis(e|ed|ation)|characteris(e|ed)|standardis(e|ed)|parametris(e|ed)|randomis(e|ed)|authoris(e|ed|ation)|realis(e|ed)|metre|litre|aluminium|mould|ageing|acknowledgement|judgement|learnt|focuss(ed|ing))\b
+        types_or: [text]
+        exclude: ^(\.pre-commit-config\.yaml$|third_party/|licenses/|data/locale/(?!en-US).*\.ini$|uv\.lock$|docs/provenance\.json$)

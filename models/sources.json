@@ -1,0 +1,60 @@
+{
+  "format": 1,
+  "files": {
+    ".cache/models/skin_retouching.pt": {
+      "source": "https://modelscope.cn/models/iic/cv_unet_skin_retouching_torch/resolve/master/pytorch_model.pt",
+      "bytes": 53646276,
+      "sha256": "760d0c0b95c4e0a692165677fe2b82dbdf8fbbd4a3780ca966599c627b082993"
+    },
+    "third_party/modelscope_unet/unet_deploy.py": {
+      "source": "https://raw.githubusercontent.com/modelscope/modelscope/master/modelscope/models/cv/skin_retouching/unet_deploy.py",
+      "bytes": 3890,
+      "sha256": "5fa3b9a4ba599908025057d64fe3b44ad71f6bb8614c8d13618a4cd5bbe7936b"
+    },
+    "third_party/modelscope_unet/weights_init.py": {
+      "source": "https://raw.githubusercontent.com/modelscope/modelscope/master/modelscope/models/cv/skin_retouching/weights_init.py",
+      "bytes": 1169,
+      "sha256": "5feb5da62e7a97cca5e60488c96d76c48074ca7521526dca0a91498880381e5b"
+    },
+    "licenses/ModelScope-Apache-2.0.txt": {
+      "source": "https://raw.githubusercontent.com/modelscope/modelscope/master/LICENSE",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    ".cache/models/face_landmarker.onnx": {
+      "source": "https://github.com/yakhyo/mediapipe-face-mesh-onnx/releases/download/weights/face_landmarker_Nx3x256x256.onnx",
+      "bytes": 4864717,
+      "sha256": "111795f8703cdeb6d0c68a9f3cc966a0f23f8786bb00f4577a11f461fc4276ac"
+    },
+    ".cache/models/iris-resources.tar.gz": {
+      "source": "https://s3.ap-northeast-2.wasabisys.com/pinto-model-zoo/049_iris_landmark/resources.tar.gz",
+      "bytes": 74396120,
+      "sha256": "855a639e9ec9718dffb9d5fef857698b56b537b0e8a8746ce80ef4577a5fffe0"
+    },
+    "licenses/FaceMesh-Apache-2.0.txt": {
+      "source": "https://raw.githubusercontent.com/yakhyo/mediapipe-face-mesh-onnx/main/LICENSE",
+      "bytes": 11353,
+      "sha256": "5be6cf80c710a3ec4fc2c269119b00ba714c58acb3cb1e0225a86e3d0c37084b"
+    },
+    "licenses/Iris-Apache-2.0.txt": {
+      "source": "https://raw.githubusercontent.com/PINTO0309/PINTO_model_zoo/main/049_iris_landmark/LICENSE",
+      "bytes": 11416,
+      "sha256": "d7c9068d896188264b60827b8cd1e25fdb9f5b5cad0b1589e90b96c87729c404"
+    },
+    ".cache/models/blaze_face_full_range.tflite": {
+      "source": "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_full_range/float16/latest/blaze_face_full_range.tflite",
+      "bytes": 1083786,
+      "sha256": "3698b18f063835bc609069ef052228fbe86d9c9a6dc8dcb7c7c2d69aed2b181b"
+    },
+    ".cache/models/selfie_multiclass_256x256.tflite": {
+      "source": "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite",
+      "bytes": 16371837,
+      "sha256": "c6748b1253a99067ef71f7e26ca71096cd449baefa8f101900ea23016507e0e0"
+    },
+    "licenses/MediaPipe-Apache-2.0.txt": {
+      "source": "https://raw.githubusercontent.com/google-ai-edge/mediapipe/master/LICENSE",
+      "bytes": 12331,
+      "sha256": "8707eef0533987efc5b155d64761eeb6e20793f50b9bd1a68dad1cf4719d0ed8"
+    }
+  }
+}

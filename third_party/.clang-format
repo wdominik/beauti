@@ -1,0 +1,3 @@
+# Copied upstream sources stay byte-identical; see docs/PROVENANCE.md.
+DisableFormat: true
+SortIncludes: false

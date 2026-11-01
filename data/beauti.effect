@@ -1,0 +1,401 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Retouch -> Skin Tone -> Local Color -> Micro Dodge & Burn -> Texture Smooth -> Eyes.
+// Full-resolution lightness processing; see docs/FINISHING-OBS.md.
+uniform float4x4 ViewProj;
+uniform texture2d image;
+uniform texture2d original_image;
+uniform texture2d blend_map;
+uniform texture2d skin_map;
+uniform texture2d eye_map;
+uniform float eye_strength;
+uniform float3 eye_tuning;
+// Linear-luminance gates (shadow start/full, highlight start/end) and sclera gates
+// (luminance start/full, sRGB channel spread start/end); values in src/core/tuning.h.
+uniform float4 eye_gates;
+uniform float4 sclera_gates;
+uniform texture2d second_image;
+uniform texture2d tone_field;
+uniform texture2d tone_target;
+uniform float4 roi;
+uniform float2 roi_pixels;
+uniform float2 grid;
+// Independent strengths, in pipeline order.
+uniform float4 strengths;
+uniform int radius;
+uniform float texture_threshold;
+uniform float texture_gain;
+uniform float texture_scale;
+uniform float texture_edges;
+uniform float3 local_control; // strength, tap spacing in face pixels, edge protection
+uniform float3 local_tuning; // L* threshold, chroma threshold, chroma correction cap
+uniform texture2d dodge_base;
+uniform texture2d dodge_stats;
+uniform int tone_radius;
+uniform int histogram_refine;
+uniform int histogram_samples;
+uniform float mask_pixels;
+sampler_state linear_sampler { Filter = Linear; AddressU = Clamp; AddressV = Clamp; };
+sampler_state point_sampler { Filter = Point; AddressU = Clamp; AddressV = Clamp; };
+struct VertInOut { float4 pos : POSITION; float2 uv : TEXCOORD0; };
+VertInOut VS(VertInOut vert_in) { VertInOut o; o.pos=mul(float4(vert_in.pos.xyz,1.0),ViewProj);o.uv=vert_in.uv;return o; }
+float3 quantize(float3 v) { return floor(saturate(v)*255.0+0.5)/255.0; }
+// Fades corrections to zero within 4% of the face-region border.
+float edge_weight(float2 uv) {
+    float2 p=uv*roi_pixels-0.5;
+    float2 edge=min(p,roi_pixels-1.0-p)/max(float2(1.0,1.0),roi_pixels*0.04);
+    return saturate(min(edge.x,edge.y));
+}
+// Retouch: per-channel quadratic curve driven by the blend map (0.5 = identity),
+// on straight-alpha color.
+float3 retouched(float4 pixel,float2 local_uv) {
+    float3 c=pixel.a>0.0 ? saturate(pixel.rgb/pixel.a) : float3(0.0,0.0,0.0);
+    if(strengths.x>0.0) {
+        float3 b=0.5+(saturate(blend_map.Sample(linear_sampler,local_uv).rgb)-0.5)*edge_weight(local_uv);
+        float3 corrected=quantize((1.0-2.0*b)*c*c+2.0*b*c);
+        c=quantize(lerp(c,corrected,strengths.x));
+    }
+    return c;
+}
+// Feathered skin weight, gated by the hard exclusion channel and the edge fade.
+float skin_weight(float2 uv) {
+    float2 hard_uv=max(float2(0.0,0.0),uv-0.5/roi_pixels+0.000001);
+    // Explicit texel centers keep hard exclusions exact even when the graphics
+    // backend shares a texture's filtering state across the two samplers.
+    hard_uv=(floor(hard_uv*mask_pixels)+0.5)/max(mask_pixels,1.0);
+    float hard=skin_map.Sample(point_sampler,hard_uv).g>0.5 ? 1.0 : 0.0;
+    return skin_map.Sample(linear_sampler,uv).r*hard*edge_weight(uv);
+}
+// Independently authored D65 Lab color path. Source references, CPU/GPU
+// differences, and evaluation results are recorded in docs/FINISHING-OBS.md.
+float decode_srgb(float c) { return c<=0.04045 ? c/12.92 : pow((c+0.055)/1.055,2.4); }
+float encode_srgb(float c) { return c<=0.0031308 ? c*12.92 : 1.055*pow(max(c,0.0),1.0/2.4)-0.055; }
+float3 linear_rgb(float3 c) { return float3(decode_srgb(c.r),decode_srgb(c.g),decode_srgb(c.b)); }
+float3 encoded_rgb(float3 c) { return float3(encode_srgb(c.r),encode_srgb(c.g),encode_srgb(c.b)); }
+float lab_f(float t) { return t>216.0/24389.0 ? pow(t,1.0/3.0) : (24389.0/27.0*t+16.0)/116.0; }
+float lab_inv(float t) { return t>6.0/29.0 ? t*t*t : (116.0*t-16.0)*27.0/24389.0; }
+float3 to_lab(float3 c) {
+    float3 p=linear_rgb(c);
+    float x=lab_f(dot(p,float3(0.4124564,0.3575761,0.1804375))/0.95047);
+    float y=lab_f(dot(p,float3(0.2126729,0.7151522,0.0721750)));
+    float z=lab_f(dot(p,float3(0.0193339,0.1191920,0.9503041))/1.08883);
+    return float3(116.0*y-16.0,500.0*(x-y),200.0*(y-z));
+}
+float3 lab_to_linear(float3 p) {
+    float fy=(p.x+16.0)/116.0;
+    float3 xyz=float3(0.95047*lab_inv(fy+p.y/500.0),lab_inv(fy),1.08883*lab_inv(fy-p.z/200.0));
+    return float3(dot(xyz,float3(3.2404542,-1.5371385,-0.4985314)),
+                  dot(xyz,float3(-0.9692660,1.8760108,0.0415560)),
+                  dot(xyz,float3(0.0556434,-0.2040259,1.0572252)));
+}
+float light_weight(float l) { return smoothstep(3.0,15.0,l)*(1.0-smoothstep(85.0,98.0,l)); }
+bool in_gamut(float3 c) { return min(c.r,min(c.g,c.b))>=-0.000001 && max(c.r,max(c.g,c.b))<=1.000001; }
+// Skin Tone: shift a*/b* toward the face median by 90% of the local difference,
+// capped at 10 Lab units, backing off by bisection when the result leaves gamut.
+float3 toned(float3 c,float2 uv) {
+    if(strengths.y<=0.0)return c;
+    float4 target=tone_target.Sample(point_sampler,float2(0.5,0.5));
+    float3 field=tone_field.Sample(linear_sampler,uv).rgb;
+    float mask=skin_weight(uv);
+    if(target.z<0.5||mask<=0.0||field.z<0.01)return c;
+    float3 lab=to_lab(c);
+    float weight=mask*light_weight(lab.x);
+    float2 delta=target.xy-field.xy/field.z;
+    delta*=0.9*weight*min(1.0,10.0/max(length(delta),0.000001));
+    if(length(delta)<0.0001)return c;
+    float3 candidate=lab_to_linear(lab+float3(0.0,delta.x,delta.y));
+    if(!in_gamut(candidate)) {
+        float lo=0.0,hi=1.0;
+        for(int i=0;i<12;i++) {
+            float mid=(lo+hi)*0.5;
+            if(in_gamut(lab_to_linear(lab+float3(0.0,delta.x,delta.y)*mid)))lo=mid;else hi=mid;
+        }
+        candidate=lab_to_linear(lab+float3(0.0,delta.x,delta.y)*lo);
+    }
+    float3 endpoint=quantize(encoded_rgb(saturate(candidate)));
+    // Match the CPU reference's linear-light strength interpolation.
+    return quantize(encoded_rgb(lerp(linear_rgb(c),linear_rgb(endpoint),strengths.y)));
+}
+float4 ToneLab(VertInOut vert_in) : TARGET {
+    float4 pixel=original_image.Sample(linear_sampler,roi.xy+vert_in.uv*roi.zw);
+    float3 lab=to_lab(retouched(pixel,vert_in.uv));
+    float weight=skin_weight(vert_in.uv)*light_weight(lab.x);
+    return float4(lab.y*weight,lab.z*weight,weight,lab.x);
+}
+float4 tone_blur(float2 uv,float2 direction) {
+    float3 sum=float3(0.0,0.0,0.0);
+    for(int i=-tone_radius;i<=tone_radius;i++)sum+=image.Sample(point_sampler,uv+direction*float(i)/grid).rgb;
+    return float4(sum/float(2*tone_radius+1),0.0);
+}
+float4 ToneBlurH(VertInOut vert_in) : TARGET { return tone_blur(vert_in.uv,float2(1.0,0.0)); }
+float4 ToneBlurV(VertInOut vert_in) : TARGET { return tone_blur(vert_in.uv,float2(0.0,1.0)); }
+// Two-level 32-bin histograms estimate a median on 64x64 samples. They remain on
+// the GPU and follow the current retouch slider on every composition.
+float4 ToneHistogram(VertInOut vert_in) : TARGET {
+    float index=floor(vert_in.uv.x*32.0);
+    float4 coarse=tone_target.Sample(point_sampler,float2(0.5,0.5));
+    float width=histogram_refine!=0 ? 0.25 : 8.0;
+    float2 lower=(histogram_refine!=0 ? coarse.xy : float2(-128.0,-128.0))+index*width;
+    float2 counts=float2(0.0,0.0);float total=0.0;
+    if(histogram_refine!=0 && coarse.z<0.0)return float4(0.0,0.0,0.0,0.0);
+    for(int y=0;y<histogram_samples;y++)for(int x=0;x<histogram_samples;x++) {
+        float4 p=image.Sample(point_sampler,(float2(float(x),float(y))+0.5)/float(histogram_samples));
+        if(p.z>0.65 && p.w>15.0 && p.w<85.0) {
+            float2 chroma=p.xy/p.z;
+            counts.x+=(chroma.x>=lower.x && chroma.x<lower.x+width) ? 1.0 : 0.0;
+            counts.y+=(chroma.y>=lower.y && chroma.y<lower.y+width) ? 1.0 : 0.0;
+            total+=1.0;
+        }
+    }
+    return float4(counts.x,counts.y,total,0.0);
+}
+float4 ToneMedian(VertInOut vert_in) : TARGET {
+    float4 first=image.Sample(point_sampler,float2(0.5/32.0,0.5));
+    float4 coarse=tone_target.Sample(point_sampler,float2(0.5,0.5));
+    if(first.z<16.0 || (histogram_refine!=0 && coarse.z<0.0))
+        return histogram_refine!=0 ? float4(0.0,0.0,0.0,0.0) : float4(0.0,0.0,-1.0,-1.0);
+    float2 rank=histogram_refine!=0 ? coarse.zw : float2(floor(first.z*0.5),floor(first.z*0.5));
+    float2 cumulative=float2(0.0,0.0),selected=float2(-1.0,-1.0),residual=rank;
+    for(int i=0;i<32;i++) {
+        float2 count=image.Sample(point_sampler,float2((float(i)+0.5)/32.0,0.5)).xy;
+        if(selected.x<0.0 && cumulative.x+count.x>rank.x){selected.x=float(i);residual.x=rank.x-cumulative.x;}
+        if(selected.y<0.0 && cumulative.y+count.y>rank.y){selected.y=float(i);residual.y=rank.y-cumulative.y;}
+        cumulative+=count;
+    }
+    if(histogram_refine!=0)return float4(coarse.xy+(selected+0.5)*0.25,1.0,0.0);
+    return float4(-128.0+selected*8.0,residual);
+}
+// Bounded hyperbolic tangent, supported by both OBS graphics backends.
+float bounded_tanh(float x) { float e=exp(-2.0*abs(x));return sign(x)*(1.0-e)/(1.0+e); }
+float3 change_lightness(float3 c,float delta) {
+    if(abs(delta)<0.0001)return c;
+    float3 lab=to_lab(c);
+    float3 candidate=lab_to_linear(lab+float3(delta,0.0,0.0));
+    if(!in_gamut(candidate)) {
+        float lo=0.0,hi=1.0;
+        for(int i=0;i<12;i++) {
+            float mid=(lo+hi)*0.5;
+            if(in_gamut(lab_to_linear(lab+float3(delta*mid,0.0,0.0))))lo=mid;else hi=mid;
+        }
+        candidate=lab_to_linear(lab+float3(delta*lo,0.0,0.0));
+    }
+    return quantize(encoded_rgb(saturate(candidate)));
+}
+// Micro Dodge & Burn: bounded L* correction toward the large-radius mean,
+// attenuated where local variance is high (edges) and at exposure extremes.
+float3 dodge(float3 c,float2 uv) {
+    float mask=skin_weight(uv);
+    if(strengths.z<=0.0 || mask<=0.0)return c;
+    float4 stats=dodge_stats.Sample(linear_sampler,uv);
+    float base=dodge_base.Sample(linear_sampler,uv).w;
+    if(stats.z<=0.000001)return c;
+    float target=stats.x/stats.z;
+    float variance=max(0.0,stats.y/stats.z-target*target)/36.0;
+    float delta=strengths.z*mask*light_weight(to_lab(c).x)/(1.0+variance*variance)
+        *4.0*bounded_tanh(0.85*(target-base)/4.0);
+    return change_lightness(c,delta);
+}
+float3 stage_rgb(float2 uv) {
+    float4 pixel=original_image.Sample(linear_sampler,roi.xy+uv*roi.zw);
+    return toned(retouched(pixel,uv),uv);
+}
+// Local color uses a fixed guide so repeated passes cannot progressively erase
+// a lip, hair, or shadow boundary. L* and the exclusion mask are never blurred.
+float4 LocalInit(VertInOut vert_in) : TARGET {
+    float3 lab=to_lab(stage_rgb(vert_in.uv));
+    return float4(lab.y,lab.z,lab.x,skin_weight(vert_in.uv));
+}
+float4 local_filter(float2 uv,float2 direction) {
+    float4 center=second_image.Sample(linear_sampler,uv);
+    if(center.w<=0.0)return image.Sample(linear_sampler,uv);
+    float2 sum=float2(0.0,0.0);float weight=0.0;
+    for(int k=-2;k<=2;k++) {
+        float2 q=uv+direction*float(k)*local_control.y/grid;
+        float4 guide=second_image.Sample(linear_sampler,q);
+        float dl=(center.z-guide.z)*local_control.z/local_tuning.x;
+        float dc=length(center.xy-guide.xy)*local_control.z/local_tuning.y;
+        dl*=dl;dc*=dc;
+        float kernel=k==0 ? 6.0 : (abs(k)==1 ? 4.0 : 1.0);
+        float w=kernel*guide.w/(1.0+dl*dl+dc*dc);
+        sum+=w*image.Sample(linear_sampler,q).xy;weight+=w;
+    }
+    return float4(weight>0.0 ? sum/weight : center.xy,center.z,center.w);
+}
+float4 LocalH(VertInOut vert_in) : TARGET { return local_filter(vert_in.uv,float2(1.0,0.0)); }
+float4 LocalV(VertInOut vert_in) : TARGET { return local_filter(vert_in.uv,float2(0.0,1.0)); }
+float4 LocalComposite(VertInOut vert_in) : TARGET {
+    float4 pixel=original_image.Sample(point_sampler,vert_in.uv);
+    float2 uv=(vert_in.uv-roi.xy)/roi.zw;
+    if(uv.x<0.0||uv.y<0.0||uv.x>=1.0||uv.y>=1.0)return pixel;
+    float3 c=toned(retouched(pixel,uv),uv);
+    float3 lab=to_lab(c);
+    float2 delta=image.Sample(linear_sampler,uv).xy-lab.yz;
+    float amount=local_control.x*skin_weight(uv)*light_weight(lab.x);
+    float magnitude=length(delta);
+    delta*=amount*local_tuning.z*bounded_tanh(magnitude/local_tuning.z)/max(magnitude,0.000001);
+    if(length(delta)<0.0001)return float4(c*pixel.a,pixel.a);
+    float3 candidate=lab_to_linear(lab+float3(0.0,delta.x,delta.y));
+    if(!in_gamut(candidate)) {
+        float lo=0.0,hi=1.0;
+        for(int i=0;i<12;i++) {
+            float mid=(lo+hi)*0.5;
+            if(in_gamut(lab_to_linear(lab+float3(0.0,delta.x,delta.y)*mid)))lo=mid;else hi=mid;
+        }
+        candidate=lab_to_linear(lab+float3(0.0,delta.x,delta.y)*lo);
+    }
+    return float4(quantize(encoded_rgb(saturate(candidate)))*pixel.a,pixel.a);
+}
+float4 DodgeInit(VertInOut vert_in) : TARGET {
+    float l=to_lab(stage_rgb(vert_in.uv)).x,weight=skin_weight(vert_in.uv);
+    return float4(l*weight,0.0,weight,l);
+}
+float4 field_blur(float2 uv,float2 direction) {
+    // Pair adjacent box taps using hardware linear interpolation. The final
+    // odd tap is separate; clamping reproduces the CPU's replicated borders.
+    float4 sum=float4(0.0,0.0,0.0,0.0);
+    for(int i=-radius;i<radius;i+=2)
+        sum+=2.0*image.Sample(linear_sampler,uv+direction*(float(i)+0.5)/grid);
+    sum+=image.Sample(linear_sampler,uv+direction*float(radius)/grid);
+    return sum/float(2*radius+1);
+}
+float4 FieldH(VertInOut vert_in) : TARGET { return field_blur(vert_in.uv,float2(1.0,0.0)); }
+float4 FieldV(VertInOut vert_in) : TARGET { return field_blur(vert_in.uv,float2(0.0,1.0)); }
+float4 DodgeBase(VertInOut vert_in) : TARGET {
+    float4 p=image.Sample(point_sampler,vert_in.uv);
+    float base=p.z>0.000001 ? p.x/p.z : to_lab(stage_rgb(vert_in.uv)).x;
+    float m=skin_weight(vert_in.uv);
+    return float4(base*m,base*base*m,m,base);
+}
+float4 TextureInit(VertInOut vert_in) : TARGET {
+    float l=to_lab(dodge(stage_rgb(vert_in.uv),vert_in.uv)).x;
+    return float4(l,0.0,skin_weight(vert_in.uv),l);
+}
+// REFLECT_101 texel coordinates, matching the CPU reference's border handling.
+float2 reflected(float2 uv) {
+    float2 p=uv*grid-0.5;
+    float2 period=max(2.0*(grid-1.0),float2(1.0,1.0));
+    p=p-floor(p/period)*period;p=min(p,period-p);
+    return (p+0.5)/grid;
+}
+// Texture Smooth: range-weighted five-tap binomial filter per level; the vertical
+// pass accumulates the gained difference to the previous level.
+float4 texture_filter(float2 uv,float2 direction,bool vertical) {
+    // r=current level, g=accumulated contrast correction, b=mask, a=original L*.
+    float4 center=image.Sample(point_sampler,uv);
+    if(center.b<=0.0)return center;
+    float sum=0.0,weight=0.0;
+    for(int k=-2;k<=2;k++) {
+        float4 p=image.Sample(point_sampler,reflected(uv+direction*float(k*radius)*texture_scale/grid));
+        float d=(center.a-p.a)/texture_threshold*texture_edges;d*=d;
+        float kernel=k==0 ? 6.0 : (abs(k)==1 ? 4.0 : 1.0);
+        float q=kernel*p.b/(1.0+d*d);sum+=q*p.r;weight+=q;
+    }
+    float next=weight>0.0 ? sum/weight : center.r;
+    float delta=center.g;
+    if(vertical)delta+=texture_gain*(next-second_image.Sample(point_sampler,uv).r);
+    return float4(next,delta,center.b,center.a);
+}
+float4 TextureH(VertInOut vert_in) : TARGET { return texture_filter(vert_in.uv,float2(1.0,0.0),false); }
+float4 TextureV(VertInOut vert_in) : TARGET { return texture_filter(vert_in.uv,float2(0.0,1.0),true); }
+// Preserve pupil darkness and catchlights. Lift existing linear RGB rather than
+// painting white or replacing iris color; reject saturated/dark sclera candidates.
+float3 enhanced_eyes(float3 c,float2 uv) {
+    if(eye_strength<=0.0)return c;
+    float2 masks=eye_map.Sample(linear_sampler,uv).rg;
+    if(masks.x+masks.y<=0.0)return c;
+    float3 rgb=linear_rgb(c);
+    float y=dot(rgb,float3(0.2126,0.7152,0.0722));
+    float protect=smoothstep(eye_gates.x,eye_gates.y,y)*(1.0-smoothstep(eye_gates.z,eye_gates.w,y));
+    float chroma=max(c.r,max(c.g,c.b))-min(c.r,min(c.g,c.b));
+    float iris=masks.x*eye_strength*protect;
+    float sclera=masks.y*eye_strength*protect*smoothstep(sclera_gates.x,sclera_gates.y,y)*(1.0-smoothstep(sclera_gates.z,sclera_gates.w,chroma));
+    float exposure=exp2(eye_tuning.x*iris+eye_tuning.y*sclera);
+    float3 lifted=(rgb+(rgb-y)*eye_tuning.z*iris)*exposure;
+    // Reduce the entire correction to fit gamut without clipping color channels.
+    float3 delta=lifted-rgb;
+    float3 limits=(1.0-rgb)/max(delta,float3(0.000001,0.000001,0.000001));
+    float amount=min(1.0,min(limits.r,min(limits.g,limits.b)));
+    return encoded_rgb(saturate(rgb+delta*amount));
+}
+// Final stage on the original pixel: Retouch, Skin Tone, Dodge & Burn, then the
+// accumulated Texture correction; the result is re-premultiplied.
+float4 Composite(VertInOut vert_in) : TARGET {
+    float4 pixel=original_image.Sample(point_sampler,vert_in.uv);
+    float2 uv=(vert_in.uv-roi.xy)/roi.zw;
+    if(uv.x<0.0||uv.y<0.0||uv.x>=1.0||uv.y>=1.0)return pixel;
+    if(strengths.x+strengths.y+strengths.z+strengths.w<=0.0)return pixel;
+    // Apply correction fields to the original pixel, never a resized RGB image.
+    float3 c=dodge(toned(retouched(pixel,uv),uv),uv);
+    float mask=skin_weight(uv);
+    if(strengths.w>0.0 && mask>0.0) {
+        float delta=mask*6.0*bounded_tanh(image.Sample(linear_sampler,uv).g/6.0);
+        c=quantize(lerp(c,change_lightness(c,delta),strengths.w));
+    }
+    return float4(c*pixel.a,pixel.a);
+}
+// A separate pass keeps Composite within OBS's eight-texture limit.
+float4 Eyes(VertInOut vert_in) : TARGET {
+    float4 pixel=image.Sample(point_sampler,vert_in.uv);
+    float2 uv=(vert_in.uv-roi.xy)/roi.zw;
+    if(uv.x<0.0||uv.y<0.0||uv.x>=1.0||uv.y>=1.0||pixel.a<=0.0)return pixel;
+    float3 c=enhanced_eyes(saturate(pixel.rgb/pixel.a),uv);
+    return float4(c*pixel.a,pixel.a);
+}
+technique Eyes { pass { vertex_shader=VS(vert_in); pixel_shader=Eyes(vert_in); } }
+technique DodgeInit { pass { vertex_shader=VS(vert_in); pixel_shader=DodgeInit(vert_in); } }
+technique FieldH { pass { vertex_shader=VS(vert_in); pixel_shader=FieldH(vert_in); } }
+technique FieldV { pass { vertex_shader=VS(vert_in); pixel_shader=FieldV(vert_in); } }
+technique DodgeBase { pass { vertex_shader=VS(vert_in); pixel_shader=DodgeBase(vert_in); } }
+technique TextureInit { pass { vertex_shader=VS(vert_in); pixel_shader=TextureInit(vert_in); } }
+technique TextureH { pass { vertex_shader=VS(vert_in); pixel_shader=TextureH(vert_in); } }
+technique TextureV { pass { vertex_shader=VS(vert_in); pixel_shader=TextureV(vert_in); } }
+technique LocalInit { pass { vertex_shader=VS(vert_in); pixel_shader=LocalInit(vert_in); } }
+technique LocalH { pass { vertex_shader=VS(vert_in); pixel_shader=LocalH(vert_in); } }
+technique LocalV { pass { vertex_shader=VS(vert_in); pixel_shader=LocalV(vert_in); } }
+technique LocalComposite { pass { vertex_shader=VS(vert_in); pixel_shader=LocalComposite(vert_in); } }
+technique Composite { pass { vertex_shader=VS(vert_in); pixel_shader=Composite(vert_in); } }
+technique ToneLab { pass { vertex_shader=VS(vert_in); pixel_shader=ToneLab(vert_in); } }
+technique ToneBlurH { pass { vertex_shader=VS(vert_in); pixel_shader=ToneBlurH(vert_in); } }
+technique ToneBlurV { pass { vertex_shader=VS(vert_in); pixel_shader=ToneBlurV(vert_in); } }
+technique ToneHistogram { pass { vertex_shader=VS(vert_in); pixel_shader=ToneHistogram(vert_in); } }
+technique ToneMedian { pass { vertex_shader=VS(vert_in); pixel_shader=ToneMedian(vert_in); } }
+
+// Shared mask preparation: erosion followed by separable sigma-2 blur.
+// Match the CPU reference's skipped erosion borders and REFLECT_101 blur.
+float mask_reflect(float p) {
+    if(p<0.0)p=-p;
+    if(p>=mask_pixels)p=2.0*mask_pixels-p-2.0;
+    return p;
+}
+float4 MaskInset(VertInOut vert_in) : TARGET {
+    float2 p=floor(vert_in.uv*mask_pixels);
+    float value=1.0;
+    for(int dy=-2;dy<=2;++dy){
+        int width=abs(dy)==2?0:2;
+        for(int dx=-2;dx<=2;++dx){
+            float2 q=p+float2(dx,dy);
+            if(abs(dx)<=width&&q.x>=0.0&&q.y>=0.0&&q.x<mask_pixels&&q.y<mask_pixels){
+                if(image.Sample(point_sampler,(q+0.5)/mask_pixels).r<=0.5)value=0.0;
+            }
+        }
+    }
+    float2 raw=image.Sample(point_sampler,(p+0.5)/mask_pixels).rg;
+    return float4(value,raw.r,raw.g,1.0);
+}
+float4 mask_blur(float2 uv,bool vertical) {
+    float2 p=floor(uv*mask_pixels);
+    float sum=0.0,weight=0.0;
+    for(int k=-8;k<=8;++k){
+        float w=exp(-float(k*k)/8.0);
+        float2 q=vertical?float2(p.x,mask_reflect(p.y+k)):float2(mask_reflect(p.x+k),p.y);
+        sum+=w*image.Sample(point_sampler,(q+0.5)/mask_pixels).r;
+        weight+=w;
+    }
+    float4 center=image.Sample(point_sampler,(p+0.5)/mask_pixels);
+    if(vertical)return float4((sum/weight)*(center.g>0.5?1.0:0.0)*saturate((center.b-0.45)/0.45),center.g,0.0,1.0);
+    return float4(sum/weight,center.g,center.b,1.0);
+}
+float4 MaskFeatherH(VertInOut vert_in) : TARGET { return mask_blur(vert_in.uv,false); }
+float4 MaskFeatherV(VertInOut vert_in) : TARGET { return mask_blur(vert_in.uv,true); }
+technique MaskInset { pass { vertex_shader=VS(vert_in); pixel_shader=MaskInset(vert_in); } }
+technique MaskFeatherH { pass { vertex_shader=VS(vert_in); pixel_shader=MaskFeatherH(vert_in); } }
+technique MaskFeatherV { pass { vertex_shader=VS(vert_in); pixel_shader=MaskFeatherV(vert_in); } }

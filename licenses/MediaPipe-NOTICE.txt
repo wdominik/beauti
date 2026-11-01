@@ -1,0 +1,32 @@
+MediaPipe models
+
+Beauti uses four models from Google MediaPipe (Google LLC / The MediaPipe Authors).
+They are published under the Apache License 2.0; see MediaPipe-Apache-2.0.txt.
+
+BlazeFace full range (face detection)
+https://storage.googleapis.com/mediapipe-assets/MediaPipe%20BlazeFace%20Model%20Card%20(Full%20Range).pdf
+Beauti converts the TFLite model to ONNX (tf2onnx, planar input) and renames its
+input and outputs; weights and operations are unchanged.
+
+Multiclass Selfie Segmentation, 256 px (skin segmentation)
+https://storage.googleapis.com/mediapipe-assets/Model%20Card%20Multiclass%20Segmentation.pdf
+Beauti converts the TFLite model to ONNX (tf2onnx, planar input), renames its input
+and output, and expresses three nearest-neighbor Resize operations with an equivalent
+coordinate mode (asymmetric, floor); on macOS the ONNX graph is converted to Core AI.
+Outputs are verified against the TFLite model.
+
+FaceMesh V2 (face landmarks)
+https://storage.googleapis.com/mediapipe-assets/Model%20Card%20MediaPipe%20Face%20Mesh%20V2.pdf
+ONNX conversion: yakhyo/mediapipe-face-mesh-onnx, distributed unchanged
+https://github.com/yakhyo/mediapipe-face-mesh-onnx
+Retained license: FaceMesh-Apache-2.0.txt
+
+Iris (iris landmarks)
+https://mediapipe.page.link/iris-mc
+ONNX conversion: PINTO0309/PINTO_model_zoo, model 049_iris_landmark, distributed unchanged
+https://github.com/PINTO0309/PINTO_model_zoo/tree/main/049_iris_landmark
+Retained license: Iris-Apache-2.0.txt
+
+Acquisition and runtime SHA-256 identities are in models/sources.json and
+models/manifest.json in the included source. Crop geometry, masking, and rendering
+are independently authored. No MediaPipe implementation source is included.

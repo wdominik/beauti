@@ -1,0 +1,180 @@
+# Beauti development tooling (the OBS plugin ships no Python).
+# Install with uv: `uv sync --group dev` (adds the test libraries), `uv sync --group models`
+# for model export. The lockfile uv.lock pins every package for all platforms.
+
+[project]
+name = "beauti-tools"
+description = "Build, model preparation, packaging, and verification tools for the Beauti OBS filter"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+authors = [{ name = "wdominik" }]
+requires-python = ">=3.14"
+dynamic = ["version"]
+dependencies = [
+  "pefile==2024.8.26; sys_platform == 'win32'",  # Windows SDK import libraries (prepare_windows)
+]
+
+[project.scripts]
+beauti-build = "beauti_tools.build.build:main"
+beauti-build-reference = "beauti_tools.build.build_reference:main"
+beauti-prepare-windows = "beauti_tools.build.prepare_windows:main"
+beauti-prepare-tensorrt = "beauti_tools.build.prepare_tensorrt:main"
+beauti-prepare-models = "beauti_tools.models.prepare:main"
+beauti-model-archive = "beauti_tools.models.archive:main"
+beauti-release-notes = "beauti_tools.packaging.release_notes:main"
+beauti-package = "beauti_tools.packaging.package:main"
+beauti-export-source = "beauti_tools.packaging.export_source:main"
+beauti-audit-mac-bundle = "beauti_tools.packaging.audit_mac_bundle:main"
+beauti-audit-windows-bundle = "beauti_tools.packaging.audit_windows_bundle:main"
+beauti-verify-native = "beauti_tools.verify_native:main"
+beauti-verify-provenance = "beauti_tools.verify_provenance:main"
+beauti-update-snapshot = "beauti_tools.update_source_snapshot:main"
+beauti-readme-images = "beauti_tools.readme_images:main"
+
+[build-system]
+requires = ["hatchling==1.32.4"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+# VERSION stays the single product version source.
+path = "VERSION"
+pattern = "^(?P<version>\\S+)"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tools/beauti_tools"]
+
+[dependency-groups]
+# Formatting, linting, local builds, and the test libraries.
+dev = [
+  "clang-format==23.1.3",
+  "ruff==0.17.2",
+  "cmake==4.4.4",
+  "ninja==1.13.2",
+  "pre-commit==4.7.0",
+  "actionlint-py==1.7.12.25",
+  "mypy==2.4.0",
+  "pefile==2024.8.26",  # also lets prepare-windows --download-only run on macOS/Linux
+  { include-group = "test" },
+]
+# Numerical reference tests and fixture analysis.
+test = [
+  "pytest==9.1.1",
+  "numpy==2.4.6",
+  "opencv-python-headless==5.0.0.93",
+]
+# Model export and graph transformations. Runtime/compiler versions can change
+# serialization; verify the output hashes after changing these.
+models = [
+  "numpy==2.4.6",
+  "onnx==1.23.2",
+  "onnxruntime==1.31.0",
+  "torch==2.14.1",
+  "protobuf==7.36.2",
+  "ml-dtypes==0.6.0",
+  # Core AI model assets, macOS only (docs/APPLE-ACCELERATION.md). coreai-torch
+  # requires numpy < 2.5, which sets the numpy pin for every group.
+  "coreai-core==1.0.0b3; sys_platform == 'darwin'",
+  "coreai-torch==0.4.3; sys_platform == 'darwin'",
+  "coreai-onnx==1.2.1; sys_platform == 'darwin'",
+  # MediaPipe TFLite models to ONNX. TensorFlow 2.21 has no Python 3.14 build; the
+  # 2.22 release candidate converts byte-equivalently (docs/decisions/0021).
+  "tensorflow==2.22.0rc0",
+  "tf2onnx==1.17.0",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+force-exclude = true  # also applies to paths passed explicitly (pre-commit)
+# Replaces ruff's default list, which excludes every directory named "build" and
+# would silently skip tools/beauti_tools/build/ and tests/build/. Ignored paths
+# (.venv, build/, dist/, .cache/) are already excluded through .gitignore.
+exclude = [
+  ".git",
+  "third_party",      # copied upstream files stay byte-identical (docs/PROVENANCE.md)
+]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.ruff.lint]
+select = [
+  "E",     # pycodestyle errors
+  "W",     # pycodestyle warnings
+  "F",     # pyflakes
+  "I",     # isort
+  "UP",    # pyupgrade (py314)
+  "B",     # bugbear
+  "SIM",   # simplify
+  "PERF",  # performance anti-patterns
+  "PTH",   # pathlib instead of os.path
+  "PLE",   # pylint errors
+  "PLW",   # pylint warnings
+  "PLC",   # pylint conventions
+  "FURB",  # refurb modernizations
+  "RUF",   # ruff-specific
+  "Q",     # consistent quotes
+]
+ignore = [
+  "E741",    # ambiguous variable names are used deliberately in numeric code
+  "B905",    # zip() operands here have known equal lengths; explicit strict= adds noise
+  "RUF001",  # typographic characters in user-facing text are intentional
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Scripts that extend sys.path before importing: test-local reference package and
+# the copied upstream model architecture under third_party/.
+"tests/obs/check_finishing_pixels.py" = ["E402"]
+"tools/beauti_tools/models/export_model.py" = ["E402"]
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "single"
+
+[tool.ruff.lint.isort]
+# The check_*.py scripts are imported by the test modules next to them.
+known-first-party = [
+  "beauti_tools",
+  "beauti_reference",
+  "check_continuity",
+  "check_failure_modes",
+  "check_finishing_pixels",
+  "check_locales",
+  "check_processing_defaults",
+  "check_slider_transitions",
+  "check_source_status",
+  "check_worker",
+  "compare_workers",
+]
+
+[tool.mypy]
+python_version = "3.14"
+files = ["tools/beauti_tools"]
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+# Fully annotated modules; keep them that way.
+module = ["beauti_tools.paths", "beauti_tools.source_files", "beauti_tools.build.*", "beauti_tools.bench.*"]
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["pefile", "onnx", "onnx.*", "onnxruntime", "onnxruntime.*", "torch", "cv2", "numpy", "modelscope_unet.*", "coreai.*", "coreai_onnx", "coreai_torch", "tensorflow", "tensorflow.*", "tf2onnx"]
+ignore_missing_imports = true
+
+[tool.pytest]
+# One runner for every Python test; tests/conftest.py documents the environment
+# variables that enable the checks needing build output, and skips them otherwise.
+minversion = "9.0"
+testpaths = ["tests"]
+# pytest's default list skips every directory named "build" and would hide
+# tests/build/.
+norecursedirs = [".*", "__pycache__", "beauti_reference"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+xfail_strict = true
+markers = [
+  "needs_reference: the compiled CPU reference library (uv run beauti-build-reference)",
+  "needs_bundle: a staged plugin bundle and a 1280x720 face fixture (BEAUTI_BUNDLE, BEAUTI_FIXTURE_720P)",
+  "needs_gpu: the libobs graphics runners from the native build (beauti-gpu-check, beauti-obs-check)",
+]

@@ -1,0 +1,19 @@
+# Keeps the SHA-pinned GitHub Actions and the pinned Python tooling current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  # uv updates pyproject.toml and uv.lock together, so `uv sync --locked` keeps working.
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # coreai-torch requires numpy < 2.5 (pyproject.toml, models group).
+      - dependency-name: numpy
+        versions: [">=2.5"]

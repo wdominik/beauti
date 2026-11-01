@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "files": {
+    "native/fp16-fast/skin_retouching.onnx": "358bd3d47d8488a0cf9791d9a7dec7b84cb6c3ddcfe2e312d1c85c253f868d99",
+    "native/optimized-fast/skin_retouching.onnx": "0efba47f47c31c932f823cbe8fe0f7c3c945cb042367a473e0f51e8cd272b1e2",
+    "fp16/skin_retouching.onnx": "2a568beabdbf1fd3e7d3f44501f838b7b4d0f473dc6445a5d52dee3896ea268d",
+    "optimized/skin_retouching.onnx": "989510659aba7d65ce0810ad883166e0e38ad640bcc5cf2919a1f644bfd2baa1",
+    "native/face_landmarks.onnx": "111795f8703cdeb6d0c68a9f3cc966a0f23f8786bb00f4577a11f461fc4276ac",
+    "native/iris_landmarks.onnx": "e3c8ae73a21415e396688d655d5f1d9e1cb5a01b7ed19962de76c06458bfddcb",
+    "coreai/retouch-384.aimodel/main.hash": "ea3612fa21781025394568b490fffd1938cae393b862d05f1be210726708b56a",
+    "coreai/retouch-384.aimodel/main.mlirb": "f285790499a0b584e2d49ec4942aaf625a901682a2821aadf7d7454ba781b4f3",
+    "coreai/retouch-384.aimodel/metadata.json": "c23487f07de9319eaa3ba1db3f2ff40c80bd4acaa764f88b0d7457e431b8e251",
+    "coreai/retouch-512.aimodel/main.hash": "5839291d6b8711af344004b430027bc871838aee0af4558ed769ed81a1001729",
+    "coreai/retouch-512.aimodel/main.mlirb": "d865d17b4b5214be76f21717eb71f34dfda03fef4bbcca9119f977e0b1ea6909",
+    "coreai/retouch-512.aimodel/metadata.json": "2c6cdeaf533fad068bafbd666999ac29c528c90065fc2c997c34f04102dcc817",
+    "coreai/skin-segmenter.aimodel/main.hash": "12503c91fb9421450098709484ecc3e6c6e197066c1d4950627c1198ac979e2c",
+    "coreai/skin-segmenter.aimodel/main.mlirb": "f4d32335ff808d5d2944d9e3bb7fae57fcc796ba788e8471d80be14dd7461557",
+    "coreai/skin-segmenter.aimodel/metadata.json": "2c6cdeaf533fad068bafbd666999ac29c528c90065fc2c997c34f04102dcc817",
+    "native/face_detector.onnx": "4c4b4699fad860673d6f2f463a87f0ad44a54d29e296e79b038b595e65d58e11",
+    "native/skin_segmenter.onnx": "e5538d87d7de2308b04c55c8927ba7f2e471d9e88975d93a7298252e87eead6e"
+  }
+}
