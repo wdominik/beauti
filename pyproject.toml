@@ -52,7 +52,7 @@ dev = [
   "ninja==1.13.2",
   "pre-commit==4.7.0",
   "actionlint-py==1.7.12.25",
-  "mypy==2.4.0",
+  "mypy==2.4.1",
   "pefile==2024.8.26",  # also lets prepare-windows --download-only run on macOS/Linux
   { include-group = "test" },
 ]
