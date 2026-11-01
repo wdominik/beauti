@@ -32,7 +32,7 @@ beauti-update-snapshot = "beauti_tools.update_source_snapshot:main"
 beauti-readme-images = "beauti_tools.readme_images:main"
 
 [build-system]
-requires = ["hatchling==1.32.4"]
+requires = ["hatchling==1.33.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
