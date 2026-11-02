@@ -155,7 +155,7 @@ and rate changes keep the current analysis.
 | `native_quality` | Quality | 0 Performance (384 px retouch), 1 High Quality (512 px retouch); the skin mask is 256 px in both | 0 | Structural: model reload |
 | `native_size` | Analysis Resolution | longer side in pixels; list offers 960, 1280, 1920; stored values are clamped to 640 to 1920 | 1280 | Structural: new analysis size |
 | `native_backend` | Processing Device | `beauti::Backend`: 0 Apple (Core AI), 2 CPU, 3 TensorRT RTX, 4 TensorRT RTX Full Precision (1 is unassigned); only the build's choices are offered | first choice of the build when the machine has its accelerator (Core AI on macOS, TensorRT RTX Full Precision on Windows with a supported NVIDIA RTX GPU/driver), else CPU | Structural: provider and model reload |
-| `native_fps` | Target Frame Rate | 1 to 60 analyses per second | 30 | Scheduling only; the continuity budget is recomputed |
+| `native_fps` | Target Frame Rate | 0 (automatic), or 1 to 60 analyses per second | 0 | Scheduling only; the compositor and models are unchanged ([decision 0024](decisions/0024-readback-timing-and-automatic-rate.md)) |
 
 The effect defaults are the Medium preset. Before 1.0, saved effect settings
 that do not fit the current catalog are reset to these defaults rather than

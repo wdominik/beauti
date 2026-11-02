@@ -77,7 +77,7 @@ M4 Pro, macOS 27.0.1, fixture measurements without a camera:
 | Retouch model call | 17.9 ms | 10.4 ms |
 | Mask thread: segmenter 8.5–9 ms with FaceMesh 4 ms overlapping | 9.3 ms | 8.8 ms |
 | 4K in OBS: distinct processed FPS at a 30 FPS target | 30 | 30 |
-| 4K in OBS: fixture frame age, median | 100 ms | 100 ms |
+| 4K in OBS: fixture frame age at the output, median | 67 ms | 67 ms |
 | 4K in OBS: average frame render time | 23.5 ms | 22.3 ms |
 
 The segmenter shares the GPU with OBS; its share shows in the render time. Running

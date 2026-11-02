@@ -108,11 +108,12 @@ Further settings:
   the accelerator when the machine has one and on the CPU otherwise, which the
   status line then says. If a selected device is unavailable, the status line
   reports the error instead of silently switching.
-- **Target Frame Rate**: how often a new analysis is requested. Presentation always
-  runs at the OBS frame rate; between analyses the last good result is held.
+- **Target Frame Rate**: how often a new analysis is requested. *Automatic* follows the
+  canvas rate as far as the computer keeps it steady, and otherwise uses an even fraction of
+  it, up to 60 FPS.
 
-The status line shows the analysis size and measured analysis rate; **Refresh
-Status** updates it. It also explains when processing is blocked by a missing
+The status line shows the analysis size, the measured analysis rate, and the delay of the
+displayed frame; **Refresh Status** updates it. It also explains when processing is blocked by a missing
 source, an unavailable image size, a source larger than 4096 px on a side, or an
 unsupported source or canvas color space. Reopening the filter settings also reads
 the current status. The plugin version appears below the settings.
@@ -129,6 +130,10 @@ and Traditional). Missing translations fall back to English.
   passed through unchanged. HDR is not validated.
 - A failure of up to 300 ms, such as a brief occlusion, is bridged. After that the filter fades
   back to the unprocessed image and resumes automatically when a face returns.
+- Frame rate and delay: the whole source shows the frame that was analyzed. While a face is
+  processed, its video therefore runs at the analysis rate and arrives slightly late. On an
+  M4 Pro the delay is about one frame at 30 FPS (34 ms), and a slower device delays more.
+  If the picture leads the sound, set a matching sync offset for the audio source in OBS.
 - 4K at a 30 FPS canvas: an M4 Pro delivers 30 processed frames per second in
   both quality modes.
 

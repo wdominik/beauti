@@ -12,7 +12,7 @@ steps to produce one, so that the gaps are explicit.
 | OBS compatibility | Built and checked against 33.0.0 on both platforms. Live camera and sustained encoding acceptance remain pending | Maintainers |
 | MediaPipe models on Windows | Built and tested; camera review remains pending | Maintainers |
 | Core AI cache after a host update | Core AI fails with `nilError` once the host's code signature changes; the adapter clears the process cache and loads again ([Apple acceleration](APPLE-ACCELERATION.md#adapter)). Reproduced only by re-signing a test binary: update OBS with Beauti installed and confirm the filter starts; report the Core AI defect to Apple | Maintainers |
-| 4K at 60 FPS | The segmenter shares the GPU with OBS (macOS 4K render time 22–24 ms at 30 FPS); decide how to bound the analysis rate | Maintainers |
+| 4K at 60 FPS | The Automatic frame rate bounds the analysis rate ([decision 0024](decisions/0024-readback-timing-and-automatic-rate.md)); confirm it on a camera and with an encoder | Maintainers |
 | Eyes on the CPU device | Without an accelerator, Eyes takes effect 0.8–1.3 s after it is enabled and fails the one-second transition check; accept or shorten | Maintainers |
 | Model tooling on a final TensorFlow | Model preparation uses TensorFlow 2.22.0rc0 (no 2.21 build for Python 3.14); switch to the 2.22 release and confirm identical conversions | Maintainers |
 | TensorRT RTX EP compatibility | ORT 1.31 is outside the EP's published matrix (1.25 to 1.30); locally validated, re-check on every ORT or EP update | Maintainers |

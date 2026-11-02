@@ -67,6 +67,23 @@ def test_live_statistics_describe_the_run(harness, bundle, fixture_720p, obs_run
     assert stats['no_face'] == 0 and stats['bridged'] == 0
 
 
+def test_automatic_rate_keeps_an_even_cadence(harness, bundle, fixture_720p, obs_runtime, tmp_path, monkeypatch):
+    monkeypatch.setenv('BEAUTI_STATS', '1')
+    env = runner_environment(obs_runtime)
+    env['BEAUTI_FIXTURE_FPS'] = '0'
+    env['BEAUTI_CANVAS_FPS'] = '60'
+    report = tmp_path / 'automatic.json'
+    command = [harness, bundle, fixture_720p, report, 14, 0, DEFAULT_BACKEND, 60, 50, 1280, 720, 0, 0]
+    command = [str(c) for c in command] + ['en-US', 'Beauti', '50', '50']
+    with report.with_suffix('.log').open('w') as log:
+        subprocess.run(command, env=env, stdout=log, stderr=log, check=True, timeout=120)
+    stats = next(iter(live_stats.parse(report.with_suffix('.log').read_text()).values()))
+    # An even fraction of the canvas, up to 60 per second, with a low delay.
+    assert 60 / stats['capture_fps'] == pytest.approx(round(60 / stats['capture_fps']), abs=0.01)
+    assert stats['processed'] > 0
+    assert stats['age_p50'] <= 2 * 1000 / stats['capture_fps'] + 1
+
+
 def test_gpu_stages_match_the_cpu_reference(gpu_check, bundle, fixture_720p, obs_runtime, tmp_path):
     out = tmp_path / 'pixels'
     out.mkdir()

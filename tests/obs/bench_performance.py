@@ -45,7 +45,9 @@ def main():
     p.add_argument('--quality', choices=['fast', 'full'], default='fast')
     p.add_argument('--canvas-fps', type=int, choices=range(1, 121), default=30, metavar='1-120')
     p.add_argument('--eyes', type=int, default=0, help='Eyes strength')
-    p.add_argument('--analysis-fps', type=int, choices=range(1, 61), metavar='1-60', help='Plugin target frame rate')
+    p.add_argument(
+        '--analysis-fps', type=int, choices=range(61), metavar='0-60', help='Plugin target frame rate; 0: automatic'
+    )
     a = p.parse_args()
     if a.obs_runtime is None:
         p.error('--obs-runtime is required on Windows')
@@ -62,7 +64,7 @@ def main():
         env.pop(key, None)
     env['BEAUTI_OBS_RUNTIME'] = str(a.obs_runtime.resolve())
     env['BEAUTI_CANVAS_FPS'] = str(a.canvas_fps)
-    if a.analysis_fps:
+    if a.analysis_fps is not None:
         env['BEAUTI_FIXTURE_FPS'] = str(a.analysis_fps)
     if sys.platform == 'win32':
         env['PATH'] = (
@@ -150,7 +152,7 @@ def main():
                 'height': a.height,
                 'motion': not a.static,
                 'canvas_fps': a.canvas_fps,
-                'analysis_fps': a.analysis_fps or 30,
+                'analysis_fps': 30 if a.analysis_fps is None else a.analysis_fps,
                 'analysis_long_side': 1280,
                 'quality': 'Performance' if a.quality == 'fast' else 'High Quality',
                 'controls': [60, 50, 50, 50],

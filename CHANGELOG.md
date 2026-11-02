@@ -7,6 +7,11 @@ All notable changes to Beauti are recorded here. The format follows
 ## [Unreleased]
 
 ### Changed
+- A processed frame now arrives about one frame earlier at 30 FPS; the delay on an M4 Pro falls
+  from 67 to 34 ms. The status line shows the current delay.
+- **Target Frame Rate** now defaults to **Automatic**, which follows the canvas rate as far as the
+  computer keeps it steady and otherwise uses an even fraction of it. This reduces skipped frames
+  at 4K and 60 FPS. Fixed rates remain available.
 - The filter now follows a face through its landmarks instead of searching every frame. Faces
   close to the camera and turned faces stay processed, a failure of up to 300 ms is bridged, and
   the face region and skin mask flicker less on a still face. Analysis takes about 2 ms longer.

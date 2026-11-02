@@ -108,3 +108,121 @@ TEST_CASE("The retry delay doubles up to its limit", "[pacing]")
 					    seconds(32), seconds(60), seconds(60), seconds(60)};
 	CHECK(delays == expected);
 }
+
+TEST_CASE("Immediate readback needs an analysis that finishes before the next capture", "[pacing]")
+{
+	const beauti::ReadbackPolicy policy;
+	const uint64_t at_30 = kSecond / 30, at_60 = kSecond / 60;
+	CHECK(policy.immediate(kSecond, at_30, 0));
+	CHECK(policy.immediate(kSecond, at_30, 15));
+	CHECK(policy.immediate(kSecond, at_60, 13));
+	CHECK_FALSE(policy.immediate(kSecond, at_60, 15));
+	CHECK_FALSE(policy.immediate(kSecond, at_30, 100));
+}
+
+TEST_CASE("A slow GPU wait returns to the later readback, for longer each time", "[pacing]")
+{
+	beauti::ReadbackPolicy policy;
+	const uint64_t frame = kSecond / 30, slow = frame / 2, fast = frame / 10;
+	uint64_t now = kSecond;
+	policy.observe(now, fast, frame);
+	CHECK(policy.immediate(now, frame, 15));
+	policy.observe(now, slow, frame);
+	CHECK_FALSE(policy.immediate(now + 5 * kSecond - 1, frame, 15));
+	now += 5 * kSecond;
+	CHECK(policy.immediate(now, frame, 15));
+	policy.observe(now, slow, frame);
+	CHECK_FALSE(policy.immediate(now + 10 * kSecond - 1, frame, 15));
+	CHECK(policy.immediate(now + 10 * kSecond, frame, 15));
+	for (int i = 0; i < 8; ++i) {
+		now += 60 * kSecond;
+		policy.observe(now, slow, frame);
+	}
+	CHECK_FALSE(policy.immediate(now + 60 * kSecond - 1, frame, 15));
+	CHECK(policy.immediate(now + 60 * kSecond, frame, 15));
+	now += 60 * kSecond;
+	policy.observe(now + 60 * kSecond, fast, frame);
+	now += 60 * kSecond;
+	policy.observe(now, slow, frame);
+	CHECK(policy.immediate(now + 5 * kSecond, frame, 15));
+}
+
+namespace {
+// Runs an automatic rate for the given seconds at a fixed analysis time and frame time.
+void run_rate(beauti::AnalysisRate &rate, uint64_t &now, double seconds, uint64_t frame, double analysis_ms,
+	      double frame_ms)
+{
+	for (auto ticks = uint64_t(seconds * double(kSecond) / double(frame)); ticks; --ticks) {
+		now += frame;
+		rate.analyzed(analysis_ms);
+		rate.tick(now, frame, frame_ms);
+	}
+}
+}
+
+TEST_CASE("The automatic rate starts safely and keeps a canvas it can hold", "[pacing]")
+{
+	const uint64_t at_30 = kSecond / 30, at_60 = kSecond / 60;
+	uint64_t now = kSecond;
+	beauti::AnalysisRate slow_canvas;
+	run_rate(slow_canvas, now, 30, at_30, 15, 6);
+	CHECK(slow_canvas.divisor() == 1);
+	beauti::AnalysisRate fast_canvas;
+	fast_canvas.tick(now, at_60, 0);
+	CHECK(fast_canvas.divisor() == 2);
+	CHECK(fast_canvas.interval(at_60) == 2 * at_60);
+	run_rate(fast_canvas, now, 30, at_60, 8, 3);
+	CHECK(fast_canvas.divisor() == 1);
+}
+
+TEST_CASE("The automatic rate never exceeds 60 per second", "[pacing]")
+{
+	uint64_t now = kSecond;
+	beauti::AnalysisRate rate;
+	run_rate(rate, now, 30, kSecond / 120, 1, 1);
+	CHECK(rate.divisor() == 2);
+}
+
+TEST_CASE("The automatic rate follows a slow analysis", "[pacing]")
+{
+	const uint64_t at_30 = kSecond / 30;
+	uint64_t now = kSecond;
+	beauti::AnalysisRate rate;
+	run_rate(rate, now, 30, at_30, 105, 6);
+	CHECK(rate.divisor() == 4);
+	CHECK(rate.interval(at_30) == 4 * at_30);
+}
+
+TEST_CASE("The automatic rate stays on an even cadence when analysis nearly fits", "[pacing]")
+{
+	const uint64_t at_60 = kSecond / 60;
+	uint64_t now = kSecond;
+	beauti::AnalysisRate rate;
+	run_rate(rate, now, 60, at_60, 16, 5);
+	CHECK(rate.divisor() == 2);
+}
+
+TEST_CASE("A full frame budget lowers the rate, down to a floor", "[pacing]")
+{
+	const uint64_t at_60 = kSecond / 60;
+	uint64_t now = kSecond;
+	beauti::AnalysisRate rate;
+	run_rate(rate, now, 60, at_60, 5, 16);
+	CHECK(rate.divisor() == 4); // 15 per second, however busy OBS is
+}
+
+TEST_CASE("An increase that fails waits longer before the next attempt", "[pacing]")
+{
+	const uint64_t at_60 = kSecond / 60;
+	uint64_t now = kSecond;
+	beauti::AnalysisRate rate;
+	rate.tick(now, at_60, 0);
+	run_rate(rate, now, 11, at_60, 8, 3);
+	REQUIRE(rate.divisor() == 1);
+	run_rate(rate, now, 3, at_60, 8, 15);
+	REQUIRE(rate.divisor() == 2);
+	run_rate(rate, now, 15, at_60, 8, 3);
+	CHECK(rate.divisor() == 2);
+	run_rate(rate, now, 10, at_60, 8, 3);
+	CHECK(rate.divisor() == 1);
+}

@@ -138,9 +138,14 @@ struct Filter {
 	uint32_t stage_w = 0, stage_h = 0, next_stage = 0, texture_w = 0, texture_h = 0, sequence = 0,
 		 shown_generation = 0;
 	beauti::CapturePacer capture_pacer;
+	beauti::ReadbackPolicy readback_policy;
+	beauti::AnalysisRate analysis_rate;
+	double last_analysis_ms = 0;
+	uint64_t capture_interval = 0;
 	uint64_t last_result = 0;
 	bool captured_this_tick = false, display_valid = false;
 	std::atomic<bool> stopping{false};
+	std::atomic<int> shown_delay_ms{-1};        // Age of the displayed frame, for the status line.
 	std::atomic<uint32_t> settings_revision{0}; // bumped when the device, quality, or analysis size changes
 	std::atomic<uint32_t> generation{1}, retouch{60}, skin_tone{50}, dodge_burn{50}, smooth{50}, eyes{0},
 		long_side{1280}, fps{30}, backend{beauti::default_backend()}, quality{0};
@@ -164,7 +169,7 @@ struct Filter {
 	// defers source destruction and may free the module's locale table before a
 	// pending destroy joins the worker, so the worker never calls obs_module_text.
 	const std::string text_starting = obs_module_text("Starting"), text_fps = obs_module_text("FramesPerSecond"),
-			  text_no_face = obs_module_text("NoFaceSuffix"),
+			  text_no_face = obs_module_text("NoFaceSuffix"), text_delay = obs_module_text("DelaySuffix"),
 			  text_failed = obs_module_text("ProcessingFailed"),
 			  text_cpu_fallback =
 				  obs_module_text(beauti::is_runtime_file_problem(beauti::accelerator_reason())
@@ -222,7 +227,7 @@ struct Filter {
 	void compose_active(const RenderContext &ctx, bool new_analysis);
 	void service_readbacks(RenderContext &ctx);
 	void consume_readback(Readback &slot, RenderContext &ctx);
-	void capture_snapshot(const RenderContext &ctx);
+	bool capture_snapshot(const RenderContext &ctx);
 	bool present(const RenderContext &ctx);
 	void log_stats() const;
 	void clear_stages();
@@ -424,7 +429,7 @@ static void defaults(obs_data_t *s)
 	for (size_t i = 0; i < beauti::kFinishSettings.size(); ++i)
 		obs_data_set_default_int(s, beauti::kFinishSettings[i].key, look.finishing[i]);
 	obs_data_set_default_int(s, "native_size", 1280);
-	obs_data_set_default_int(s, "native_fps", 30);
+	obs_data_set_default_int(s, "native_fps", 0);
 	obs_data_set_default_int(s, "native_backend", beauti::default_backend());
 	obs_data_set_default_int(s, "native_quality", 0);
 }
@@ -449,7 +454,7 @@ static void apply_settings(Filter *f, obs_data_t *s)
 	bool reconfigure = f->long_side.exchange(side) != side;
 	reconfigure = (f->backend.exchange(backend) != backend) || reconfigure;
 	reconfigure = (f->quality.exchange(quality) != quality) || reconfigure;
-	f->fps = uint32_t(std::clamp<int64_t>(obs_data_get_int(s, "native_fps"), 1, 60));
+	f->fps = uint32_t(std::clamp<int64_t>(obs_data_get_int(s, "native_fps"), 0, 60)); // 0: automatic
 	{
 		std::lock_guard<std::mutex> lock(f->mutex);
 		if (!f->configured || reconfigure) {
@@ -547,8 +552,11 @@ static void destroy(void *data) noexcept
 }
 std::string Filter::visible_status()
 {
+	const int delay = shown_delay_ms.load();
 	std::lock_guard<std::mutex> lock(mutex);
-	return source_status.empty() ? status : source_status;
+	if (!source_status.empty())
+		return source_status;
+	return delay < 0 ? status : std::format("{} · {} {}", status, delay, text_delay);
 }
 static bool refresh_status(obs_properties_t *p, obs_property_t *, void *data) noexcept
 {
@@ -630,7 +638,13 @@ static void fill_properties(obs_properties_t *p, Filter *f)
 					  OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 	for (const auto &choice : beauti::backend_choices())
 		obs_property_list_add_int(b, obs_module_text(choice.locale_key), choice.id);
-	obs_properties_add_int(processing, "native_fps", obs_module_text("TargetFrameRate"), 1, 60, 1);
+	auto *rate = obs_properties_add_list(processing, "native_fps", obs_module_text("TargetFrameRate"),
+					     OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	obs_property_set_long_description(rate, obs_module_text("TargetFrameRateHelp"));
+	obs_property_list_add_int(rate, obs_module_text("AutomaticFrameRate"), 0);
+	for (const int choice : {60, 50, 30, 25, 24, 20, 15, 10})
+		obs_property_list_add_int(
+			rate, std::format("{} {}", choice, obs_module_text("FramesPerSecond")).c_str(), choice);
 	const std::string state = f ? f->visible_status() : obs_module_text("Starting");
 	obs_properties_add_text(p, "status", state.c_str(), OBS_TEXT_INFO);
 	obs_properties_add_button2(p, "refresh", obs_module_text("RefreshStatus"), refresh_status, f);
@@ -786,7 +800,16 @@ bool Filter::prepare_context(RenderContext &ctx)
 		context_w = ctx.width;
 		context_h = ctx.height;
 	}
-	continuity.set_cadence(1000.0 / fps.load());
+	const uint32_t requested = fps.load();
+	if (requested) {
+		capture_interval = 1000000000ULL / requested;
+	} else {
+		const uint64_t frame_interval = obs_get_frame_interval_ns();
+		if (!captured_this_tick)
+			analysis_rate.tick(ctx.now, frame_interval, double(obs_get_average_frame_time_ns()) / 1e6);
+		capture_interval = analysis_rate.interval(frame_interval);
+	}
+	continuity.set_cadence(double(capture_interval) / 1e6);
 	return true;
 }
 // Step 3: take a finished analysis from the worker if it matches this context.
@@ -818,6 +841,8 @@ bool Filter::receive_result(const RenderContext &ctx)
 		return false;
 	if (beauti::stats_enabled())
 		stats.accept(r.milliseconds);
+	last_analysis_ms = r.milliseconds;
+	analysis_rate.analyzed(r.milliseconds);
 	active = std::move(ready);
 	return true;
 }
@@ -891,10 +916,20 @@ void Filter::service_readbacks(RenderContext &ctx)
 		next_stage = 0;
 		display_valid = false;
 	}
-	// Consume previous tick before staging new pixels. Never wait on a just-issued readback.
+	// Consume what an earlier tick left before staging new pixels.
 	for (auto &slot : stages)
 		consume_readback(slot, ctx);
-	capture_snapshot(ctx);
+	if (!capture_snapshot(ctx) || !readback_policy.immediate(ctx.now, capture_interval, last_analysis_ms))
+		return;
+	// Read this capture back now, so that its analysis can finish before the next tick.
+	const uint64_t start = os_gettime_ns();
+	gs_flush();
+	for (auto &slot : stages)
+		consume_readback(slot, ctx);
+	const uint64_t end = os_gettime_ns();
+	readback_policy.observe(end, end - start, obs_get_frame_interval_ns());
+	if (beauti::stats_enabled())
+		stats.read_back(double(end - start) / 1e6);
 }
 // Map a finished staging surface, copy its rows into a job, check for a scene cut,
 // and hand the job to the worker, replacing one it has not started yet.
@@ -952,12 +987,13 @@ void Filter::consume_readback(Readback &slot, RenderContext &ctx)
 	event.notify_one();
 }
 // Render the target into a full-resolution snapshot, scale it down, and start the
-// asynchronous readback that feeds the worker. Rate-limited to the requested cadence.
-void Filter::capture_snapshot(const RenderContext &ctx)
+// readback that feeds the worker. Rate-limited to the requested cadence; returns whether a
+// capture started.
+bool Filter::capture_snapshot(const RenderContext &ctx)
 {
-	const uint64_t interval = 1000000000ULL / fps.load(), video_clock = obs_get_video_frame_time();
+	const uint64_t interval = capture_interval, video_clock = obs_get_video_frame_time();
 	if (!capture_pacer.due(video_clock, interval))
-		return;
+		return false;
 	Snapshot *snapshot = nullptr;
 	uint32_t index = 0;
 	// A slot is free when only the snapshot itself still holds the token.
@@ -969,7 +1005,7 @@ void Filter::capture_snapshot(const RenderContext &ctx)
 		}
 	auto &slot = stages[next_stage];
 	if (!(snapshot && slot.surface))
-		return;
+		return false;
 	capture_pacer.taken(video_clock, interval);
 	next_stage = (next_stage + 1) % kReadbackSlots;
 	if (!snapshot->render)
@@ -1032,6 +1068,7 @@ void Filter::capture_snapshot(const RenderContext &ctx)
 		     " capture: the source could not be rendered into the analysis texture (%ux%u); no frame reaches the analysis",
 		     ctx.width, ctx.height);
 	capture_failing = !captured;
+	return captured;
 }
 // Step 5: draw the composed frame, cross-fade in and out, or pass the source through.
 // Returns whether the output shows processed pixels.
@@ -1078,8 +1115,9 @@ bool Filter::present(const RenderContext &ctx)
 }
 void Filter::log_stats() const
 {
-	blog(LOG_INFO, "[beauti-stats] " BEAUTI_VERSION " id=%p %s obs_frame_ms=%.1f lagged=%u",
-	     static_cast<const void *>(this), stats.summary().c_str(), double(obs_get_average_frame_time_ns()) / 1e6,
+	blog(LOG_INFO, "[beauti-stats] " BEAUTI_VERSION " id=%p %s capture_fps=%.1f obs_frame_ms=%.1f lagged=%u",
+	     static_cast<const void *>(this), stats.summary().c_str(),
+	     capture_interval ? 1e9 / double(capture_interval) : 0.0, double(obs_get_average_frame_time_ns()) / 1e6,
 	     obs_get_lagged_frames() - lagged_at_start);
 }
 void Filter::render()
@@ -1095,6 +1133,7 @@ void Filter::render()
 	const bool new_analysis = receive_result(ctx);
 	compose_active(ctx, new_analysis);
 	const bool drawn = present(ctx);
+	shown_delay_ms = drawn && active.token ? int(double(ctx.now - active.frame.captured_ns) / 1e6) : -1;
 	if (beauti::stats_enabled() && tick_start) {
 		if (!stats.tick_count())
 			lagged_at_start = obs_get_lagged_frames();

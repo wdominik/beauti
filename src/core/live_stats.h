@@ -46,7 +46,7 @@ class LiveStats {
 	uint64_t results = 0, no_face = 0, bridged = 0, scene_cuts = 0, losses = 0;
 	double startup_ms = -1;
 	bool fresh = false, was_good = false;
-	MsHistogram age, analysis, compose, recovery;
+	MsHistogram age, analysis, compose, recovery, readback;
 	std::map<std::string, uint64_t> loss_reasons;
 
 public:
@@ -67,6 +67,8 @@ public:
 	}
 	void scene_cut() { ++scene_cuts; }
 	void composed(double ms) { compose.add(ms); }
+	// The graphics thread waited this long for a capture it read back at once.
+	void read_back(double ms) { readback.add(ms); }
 	// Once per video tick. drawn: the output shows processed pixels. good: the policy
 	// holds a valid result; reason: why not, when it just stopped.
 	void tick(uint64_t now, bool drawn, double age_ms, bool good, const char *reason)
@@ -104,12 +106,14 @@ public:
 			"seconds={:.1f} ticks={} processed={} passthrough={} accepted={} repeated={} startup_ms={:.0f} "
 			"age_p50={:.0f} age_p95={:.0f} age_max={:.0f} analysis_p50={:.0f} analysis_p95={:.0f} "
 			"compose_p50={:.0f} compose_p95={:.0f} results={} no_face={} bridged={} scene_cuts={} "
-			"losses={} recovery_p50={:.0f} recovery_max={:.0f}",
+			"losses={} recovery_p50={:.0f} recovery_max={:.0f} readback_count={} readback_p50={:.0f} "
+			"readback_p95={:.0f} readback_max={:.0f}",
 			double(last_tick - first_tick) / 1e9, ticks, processed, passthrough, accepted, repeated,
 			std::max(startup_ms, 0.0), age.percentile(.5), age.percentile(.95), age.maximum(),
 			analysis.percentile(.5), analysis.percentile(.95), compose.percentile(.5),
 			compose.percentile(.95), results, no_face, bridged, scene_cuts, losses, recovery.percentile(.5),
-			recovery.maximum());
+			recovery.maximum(), readback.count(), readback.percentile(.5), readback.percentile(.95),
+			readback.maximum());
 		for (const auto &[reason, count] : loss_reasons)
 			text += std::format(" loss_{}={}", reason, count);
 		return text;

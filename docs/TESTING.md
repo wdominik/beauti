@@ -273,7 +273,8 @@ Opt-in `BEAUTI_STATS=1` measures a live session without the per-stage output. Ev
 ten seconds and when it is removed, each filter writes one `[beauti-stats]` line with
 cumulative values to the OBS log: ticks, processed and repeated output, frame age,
 analysis and compose time, no-face results, bridged analyses, scene cuts, face
-losses by reason, recovery time, OBS frame time, and lagged frames.
+losses by reason, recovery time, the wait for immediate readbacks, the capture rate, OBS
+frame time, and lagged frames.
 `tests/obs/live_stats.py LOG` returns the last line of each filter as JSON, and
 `tests/obs/bench_performance.py` records it for its runs.
 

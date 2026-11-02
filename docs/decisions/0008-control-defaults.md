@@ -17,7 +17,7 @@ reading documentation and that all measurements can share.
 | Skin Tone, Micro Dodge & Burn, Smooth | 50 % each |
 | Quality | Performance (384 px retouch, 256 px mask) |
 | Analysis Resolution | 1280 px longer side |
-| Target Frame Rate | 30 analyses per second |
+| Target Frame Rate | Automatic ([0024](0024-readback-timing-and-automatic-rate.md)) |
 | Processing Device | first accelerator of the build when the machine has it, else CPU ([0015](0015-default-device-follows-the-machine.md)) |
 
 The defaults predate the measurements and are the configuration of every
