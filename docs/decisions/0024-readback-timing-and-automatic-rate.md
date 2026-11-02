@@ -18,9 +18,10 @@ moments, which looks worse than an even lower rate.
 - A wait above 30% of the frame interval returns to the later readback for 5 seconds, doubling up
   to 60 seconds. It never waits repeatedly on a saturated GPU.
 - The default target frame rate is Automatic: the canvas rate divided by a whole number, up to
-  60 FPS. The divisor grows when the 90th percentile of the analysis time exceeds 90% of the
-  capture interval, or the OBS frame time exceeds 85% of its budget, the latter not below 15 FPS.
-  It shrinks after 10 stable seconds when the lower divisor fits with room to spare. An increase
+  60 FPS. The divisor grows only on evidence: results that stay below 90% of the capture rate in two
+  windows in a row, or an OBS frame time above 85% of its budget, the latter not below 15 FPS. A
+  long analysis alone lowers nothing while its results arrive. The divisor shrinks after 10 stable
+  seconds when the 90th percentile of the analysis time is within 85% of the shorter interval. An increase
   that fails within 5 seconds doubles that wait, up to 120 seconds. A canvas above 40 FPS starts at
   half its rate.
 - A fixed target stays available and is followed exactly.

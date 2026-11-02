@@ -84,7 +84,8 @@ effect values and never changes the processing settings. See the
 | Eyes | Subtly brightens the iris and eye whites, preserving natural color | 50% |
 
 Stages run in the order shown. Each control ranges from 0 to 100%; zero disables
-only that stage, and changes fade in over 150 ms so dragging a slider never flashes
+only that stage, and with all effects at zero the analysis stops after two seconds and the
+models release their memory after three minutes. Changes fade in over 150 ms so dragging a slider never flashes
 the unprocessed image. Eyes strength follows the selected preset; its iris model
 runs only while Eyes is enabled or fading out. Closed, too-small, or uncertain eyes
 receive no correction. See [Eyes](docs/EYES.md) for behavior and limits.

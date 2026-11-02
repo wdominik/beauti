@@ -148,13 +148,21 @@ TEST_CASE("A slow GPU wait returns to the later readback, for longer each time",
 }
 
 namespace {
-// Runs an automatic rate for the given seconds at a fixed analysis time and frame time.
+// Runs an automatic rate for the given seconds. Results arrive once per capture interval, but
+// no faster than the analysis finishes.
 void run_rate(beauti::AnalysisRate &rate, uint64_t &now, double seconds, uint64_t frame, double analysis_ms,
 	      double frame_ms)
 {
+	double progress = 0;
 	for (auto ticks = uint64_t(seconds * double(kSecond) / double(frame)); ticks; --ticks) {
 		now += frame;
-		rate.analyzed(analysis_ms);
+		const double capture_ms = double(rate.divisor() * frame) / 1e6;
+		progress += (double(frame) / 1e6) / std::max(analysis_ms, capture_ms);
+		if (progress >= 1) {
+			progress -= 1;
+			rate.delivered();
+			rate.analyzed(analysis_ms);
+		}
 		rate.tick(now, frame, frame_ms);
 	}
 }
@@ -189,8 +197,28 @@ TEST_CASE("The automatic rate follows a slow analysis", "[pacing]")
 	uint64_t now = kSecond;
 	beauti::AnalysisRate rate;
 	run_rate(rate, now, 30, at_30, 105, 6);
-	CHECK(rate.divisor() == 4);
-	CHECK(rate.interval(at_30) == 4 * at_30);
+	CHECK(rate.divisor() == 3);
+	CHECK(rate.interval(at_30) == 3 * at_30);
+}
+
+TEST_CASE("An analysis that nearly fills the interval keeps the rate while its results arrive", "[pacing]")
+{
+	const uint64_t at_30 = kSecond / 30;
+	uint64_t now = kSecond;
+	beauti::AnalysisRate rate;
+	run_rate(rate, now, 60, at_30, 31, 8);
+	CHECK(rate.divisor() == 1);
+}
+
+TEST_CASE("A lowered rate returns once the analysis fits again", "[pacing]")
+{
+	const uint64_t at_30 = kSecond / 30;
+	uint64_t now = kSecond;
+	beauti::AnalysisRate rate;
+	run_rate(rate, now, 6, at_30, 50, 8);
+	REQUIRE(rate.divisor() == 2);
+	run_rate(rate, now, 12, at_30, 26, 8);
+	CHECK(rate.divisor() == 1);
 }
 
 TEST_CASE("The automatic rate stays on an even cadence when analysis nearly fits", "[pacing]")
@@ -200,6 +228,38 @@ TEST_CASE("The automatic rate stays on an even cadence when analysis nearly fits
 	beauti::AnalysisRate rate;
 	run_rate(rate, now, 60, at_60, 16, 5);
 	CHECK(rate.divisor() == 2);
+}
+
+TEST_CASE("Results that miss their ticks lower the rate", "[pacing]")
+{
+	const uint64_t at_60 = kSecond / 60;
+	uint64_t now = kSecond;
+	beauti::AnalysisRate rate;
+	rate.tick(now, at_60, 0);
+	run_rate(rate, now, 12, at_60, 8, 3);
+	REQUIRE(rate.divisor() == 1);
+	for (int tick = 0; tick < 4 * 60; ++tick) {
+		now += at_60;
+		if (tick % 3)
+			rate.delivered();
+		rate.analyzed(8);
+		rate.tick(now, at_60, 3);
+	}
+	CHECK(rate.divisor() == 2);
+}
+
+TEST_CASE("Without results the automatic rate holds", "[pacing]")
+{
+	const uint64_t at_30 = kSecond / 30;
+	uint64_t now = kSecond;
+	beauti::AnalysisRate rate;
+	run_rate(rate, now, 3, at_30, 15, 6);
+	REQUIRE(rate.divisor() == 1);
+	for (int tick = 0; tick < 30 * 30; ++tick) {
+		now += at_30;
+		rate.tick(now, at_30, 6);
+	}
+	CHECK(rate.divisor() == 1);
 }
 
 TEST_CASE("A full frame budget lowers the rate, down to a floor", "[pacing]")
@@ -225,4 +285,15 @@ TEST_CASE("An increase that fails waits longer before the next attempt", "[pacin
 	CHECK(rate.divisor() == 2);
 	run_rate(rate, now, 10, at_60, 8, 3);
 	CHECK(rate.divisor() == 1);
+}
+
+TEST_CASE("Paused work stops two seconds after its control reaches zero", "[pacing]")
+{
+	beauti::PauseTimer timer;
+	CHECK_FALSE(timer.active(false, kSecond));
+	CHECK(timer.active(true, kSecond));
+	CHECK(timer.active(false, 2 * kSecond));
+	CHECK(timer.active(false, 3 * kSecond - 1));
+	CHECK_FALSE(timer.active(false, 3 * kSecond));
+	CHECK(timer.active(true, 4 * kSecond));
 }

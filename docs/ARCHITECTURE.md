@@ -65,7 +65,7 @@ flowchart TD
     EY --> OUT[RGBA8 output]
 ```
 
-Local Color optionally materializes the early stages once in RGBA32F; when
+Local Color optionally materializes the early stages once in half floats; when
 disabled, the original composition path is unchanged. Its five pass slots are
 LocalInit, LocalH, LocalVEven, LocalVOdd, and LocalComposite. See
 [Local Color](LOCAL-COLOR.md) for the guide, bounds, and independent reference.

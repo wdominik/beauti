@@ -61,7 +61,7 @@ freshness from bounded stall handling, bridges one bounded detection miss, and
 retains complete compatible processed snapshots across temporary delays on CPU,
 NVIDIA, and Apple. Native Apple integration validation remains pending.
 
-RGBA32F intermediate textures limit accumulation error; final output is SDR
+Floating-point intermediate textures limit accumulation error; final output is SDR
 RGBA8. GPU float interpolation/rounding differs slightly from CPU double sliding
 sums. Skin Tone's color statistics are sampled. A face box scaled from the
 analysis frame can have fractional pixel coordinates: its field dimensions are

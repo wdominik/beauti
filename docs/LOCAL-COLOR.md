@@ -25,7 +25,7 @@ be included in presets.
    length by `6 * tanh(length / 6)` and multiply by strength, skin weight, and
    the existing lightness protection. Preserve L*. Back off in twelve bisection
    steps if the corrected color would leave sRGB gamut; quantize the RGB endpoint.
-5. Materialize Retouch, Skin Tone, and Local Color once in a full-frame RGBA32F
+5. Materialize Retouch, Skin Tone, and Local Color once in a full-frame half-float
    target (`LocalComposite`). The subsequent stages read it with the early
    strengths set to zero. This avoids applying them twice, another premultiplied
    RGBA8 intermediate, and a ninth sampler in the final Composite technique.

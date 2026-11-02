@@ -6,6 +6,7 @@ and the Windows validation; the tests run the native runners from the build
 directory with the shared fixtures from tests/conftest.py.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -13,6 +14,7 @@ import sys
 import check_configurable_finishing
 import check_presets
 import live_stats
+import numpy as np
 import pytest
 
 import check_continuity
@@ -82,6 +84,20 @@ def test_automatic_rate_keeps_an_even_cadence(harness, bundle, fixture_720p, obs
     assert 60 / stats['capture_fps'] == pytest.approx(round(60 / stats['capture_fps']), abs=0.01)
     assert stats['processed'] > 0
     assert stats['age_p50'] <= 2 * 1000 / stats['capture_fps'] + 1
+
+
+def test_effects_at_zero_stop_the_analysis_and_release_the_models(
+    continuity_bundle, harness, fixture_720p, obs_runtime, tmp_path, monkeypatch
+):
+    monkeypatch.setenv('BEAUTI_CONTINUITY_TEST', 'idle')
+    report = run_fixture(harness, continuity_bundle, fixture_720p, obs_runtime, tmp_path / 'idle.json', 15, 14)
+    log = report.with_suffix('.log').read_text()
+    assert 'engine released' in log
+    assert log.count('engine ready:') == 2
+    rows = np.asarray(json.loads(report.read_text())['samples'])
+    assert np.all(rows[(rows[:, 0] > 7) & (rows[:, 0] < 10), 3] == 0), 'The source must pass through untouched'
+    assert np.any(rows[(rows[:, 0] > 2) & (rows[:, 0] < 4), 3] > 0), 'The effect must run before the pause'
+    assert np.any(rows[rows[:, 0] > 12, 3] > 0), 'The effect must return after the pause'
 
 
 def test_gpu_stages_match_the_cpu_reference(gpu_check, bundle, fixture_720p, obs_runtime, tmp_path):

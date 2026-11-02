@@ -432,7 +432,7 @@ int beauti_main(int argc, char **argv)
 				double elapsed = double(os_gettime_ns() - start) / 1e9 - control_start;
 				int next = (switch_controls == 2 || switch_controls == 3 || switch_controls == 5 ||
 					    switch_controls == 6 || switch_controls == 8 || switch_controls == 10 ||
-					    switch_controls == 12)
+					    switch_controls == 12 || switch_controls == 14)
 						   ? int(elapsed * 30)
 						   : int(elapsed / 2);
 				if (next != transition) {
@@ -483,6 +483,16 @@ int beauti_main(int argc, char **argv)
 						}
 					}
 					auto *change = obs_source_get_settings(filter);
+					if (switch_controls == 14) {
+						// All effects off between 4 and 10 seconds.
+						const bool off = elapsed >= 4 && elapsed < 10;
+						r = off ? 0 : 60;
+						s = off ? 0 : 50;
+						t = off ? 0 : 50;
+						d = off ? 0 : 50;
+						e = 0;
+						obs_data_set_int(change, "local_color", off ? 0 : 30);
+					}
 					if (switch_controls == 12) {
 						r = t = d = e = 0;
 						s = 80;

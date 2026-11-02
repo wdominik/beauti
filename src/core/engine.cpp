@@ -104,6 +104,9 @@ struct Session {
 			// Device sessions retain one host thread; only CPU sessions use the engine's CPU budget.
 			check(api()->SetIntraOpNumThreads(opts, backend == CPU ? cpu_threads : 1));
 			check(api()->SetInterOpNumThreads(opts, 1));
+			// Between analyses the pool sleeps instead of spinning: the time between frames
+			// belongs to the encoder and to whatever else runs next to OBS.
+			check(api()->AddSessionConfigEntry(opts, "session.intra_op.allow_spinning", "0"));
 			check(api()->SetSessionGraphOptimizationLevel(opts, ORT_ENABLE_ALL));
 			check(api()->SetSessionLogSeverityLevel(opts, 3));
 #ifdef _WIN32
@@ -314,6 +317,7 @@ struct Engine::Impl {
 	// FaceMesh landmarks of the last accepted analysis; the skin mask and the eye correction
 	// share them. A bridged analysis keeps them, so a failed model run only fills the candidates.
 	std::vector<EyePoint> mesh_points, mesh_candidate;
+	Clock::time_point analysis_start;
 	uint32_t backend;
 	int nr, ns = kSegmenterSide;
 	InputBuffer detector_input, retouch_input, skin_input;
@@ -502,31 +506,20 @@ struct Engine::Impl {
 		if (tracker.larger_face_seen(now, found ? &face.box : nullptr) && run_mesh(f, face.crop))
 			accept_mesh(now);
 	}
-	// Finds the face region of this analysis. Fresh: landmarks of this frame. Bridged: the last
-	// region and landmarks, on this frame. None: no usable face.
-	enum class FaceFound { Fresh, Bridged, None };
-	FaceFound locate_face(Frame &f, uint64_t now)
+	void use_tracked_box(Frame &f) const
 	{
-		tracker.begin(now, f.width, f.height, f.generation);
-		bool found = tracker.tracking() && run_mesh(f, tracker.region()) && accept_mesh(now);
-		if (found && tracker.detector_due(now))
-			check_for_larger_face(f, now);
-		if (!found) {
-			DetectedFace face;
-			found = (detect(f, 1, face) || detect(f, kDetectorSearchShrink, face)) &&
-				run_mesh(f, face.crop) && accept_mesh(now);
-		}
-		const bool bridged = !found && tracker.may_bridge(now);
-		if (!found && !bridged) {
-			tracker.reset();
-			return FaceFound::None;
-		}
 		const auto &box = tracker.box();
 		f.box[0] = box.left;
 		f.box[1] = box.top;
 		f.box[2] = box.right;
 		f.box[3] = box.bottom;
-		return found ? FaceFound::Fresh : FaceFound::Bridged;
+	}
+	// A face the detector finds, confirmed by its landmarks.
+	bool acquire_face(const Frame &f, uint64_t now)
+	{
+		DetectedFace face;
+		return (detect(f, 1, face) || detect(f, kDetectorSearchShrink, face)) && run_mesh(f, face.crop) &&
+		       accept_mesh(now);
 	}
 	// The Iris model loads lazily, on the landmark device with the auxiliary CPU budget.
 	void analyze_eyes(const Frame &f, Maps &maps)
@@ -590,38 +583,14 @@ struct Engine::Impl {
 			f.warning = std::string("Eyes disabled: ") + e.what();
 		}
 	}
-	// Locate the face, prepare both model inputs from its region, run the skin mask on a
-	// second thread while the retouch graph runs, validate the outputs, and pack
-	// them as RGBA float maps for the compositor.
-	void analyze(Frame &f, Maps &maps)
+	// Prepares both model inputs from f.box, runs the skin mask on a second thread while the
+	// retouch graph runs, validates the outputs, and packs them as RGBA float maps for the
+	// compositor. With track set, the landmarks of this frame run on a third thread next to the
+	// models; otherwise the caller has found them already and passes that in fresh. Returns
+	// whether this frame has fresh landmarks.
+	bool run_models(Frame &f, Maps &maps, bool track, bool fresh, uint64_t now)
 	{
-		TimingSpan total_span("engine", f.sequence);
-		maps = Maps{};
-		f.warning.clear();
-		auto start = Clock::now();
-		if (f.width == 0 || f.height == 0 || f.width > kMaxImageSide || f.height > kMaxImageSide ||
-		    f.pixels.size() != size_t(f.width) * f.height * 4)
-			throw std::runtime_error("Invalid image dimensions");
-		f.used_backend = backend;
-		f.status = 0;
-		if (!f.retouch && !f.smooth && !f.eyes) {
-			f.milliseconds = elapsed(start);
-			return;
-		}
-		// The bench and tests pass no capture time; the tracker then uses the wall clock.
-		const uint64_t now = f.captured_ns ? f.captured_ns
-						   : uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
-								      start.time_since_epoch())
-								      .count());
-		const FaceFound face = locate_face(f, now);
-		f.landmarks_valid = face == FaceFound::Fresh;
-		if (face == FaceFound::None) {
-			f.status = 1;
-			f.milliseconds = elapsed(start);
-			return;
-		}
-		f.detect_ms = elapsed(start);
-		int l = f.box[0], t = f.box[1], w = f.box[2] - l, h = f.box[3] - t;
+		const int l = f.box[0], t = f.box[1], w = f.box[2] - l, h = f.box[3] - t;
 		const int NR = nr * nr, NS = ns * ns;
 		{
 			TimingSpan span("model_prepare", f.sequence);
@@ -632,30 +601,37 @@ struct Engine::Impl {
 		}
 		auto inference = Clock::now();
 		const float *B = nullptr;
+		// Declared in this order so that the mask thread, which waits for the landmarks, joins
+		// first when retouch throws. Eye maps need landmarks of this frame; their models wait
+		// for nothing the others use.
+		std::shared_future<bool> landmarks;
 		std::future<const float *> future;
 		const auto dispatched = timing_enabled() ? Clock::now() : Clock::time_point{};
-		// Eye maps need landmarks of this frame. With the skin mask active, the eye models
-		// run next to the segmenter, which waits on the GPU or its own pool.
-		const bool eyes_wanted = f.eyes && !eyes_unavailable && face == FaceFound::Fresh;
-		const bool eyes_with_mask = f.smooth && eyes_wanted;
+		const bool eyes_wanted = f.eyes && !eyes_unavailable;
+		if (track || (fresh && eyes_wanted))
+			landmarks = std::async(std::launch::async, [&, track, fresh, eyes_wanted, now] {
+					    bool current = fresh;
+					    if (track)
+						    current = run_mesh(f, tracker.region()) && accept_mesh(now);
+					    if (current && eyes_wanted)
+						    try_eyes(f, maps);
+					    return current;
+				    }).share();
 		if (f.smooth) {
 			// The whole mask (segmenter, feature cut-out) runs on this second thread while
 			// the retouch model occupies the Neural Engine or the device. Only maps.mask is
-			// written here, and maps.eyes on the eye thread.
+			// written here, and maps.eyes on the landmark thread.
 			TimingSpan span("skin_dispatch", f.sequence);
 			future = std::async(std::launch::async, [&, dispatched] {
 				if (timing_enabled())
 					timing_log("skin_start_delay", f.sequence, elapsed(dispatched));
 				TimingSpan span("skin_run", f.sequence);
-				std::future<void> eye_models;
-				if (eyes_with_mask)
-					eye_models = std::async(std::launch::async, [&] { try_eyes(f, maps); });
 				const float *classes = [&] {
 					TimingSpan run_span("segmenter_run", f.sequence);
 					return skin->run(skin_input.values, ns);
 				}();
-				if (eye_models.valid())
-					eye_models.get();
+				if (landmarks.valid())
+					landmarks.wait();
 				for (int i = 0; i < kSegmenterClasses * NS; ++i)
 					if (!std::isfinite(classes[i]))
 						throw std::runtime_error("Invalid skin mask");
@@ -663,7 +639,7 @@ struct Engine::Impl {
 				return classes;
 			});
 		}
-		// The future joins before its inputs die, also when retouch throws.
+		// The futures join before their inputs die, also when retouch throws.
 		if (f.retouch) {
 			TimingSpan span("retouch_run", f.sequence);
 			B = retouch->run(retouch_input.values, nr);
@@ -672,8 +648,8 @@ struct Engine::Impl {
 			TimingSpan span("skin_wait", f.sequence);
 			static_cast<void>(future.get()); // rethrows a segmentation failure
 		}
-		if (eyes_wanted && !eyes_with_mask)
-			try_eyes(f, maps);
+		if (landmarks.valid())
+			fresh = landmarks.get();
 		if (eyes_unavailable)
 			f.eyes = 0;
 		f.infer_ms = elapsed(inference);
@@ -693,7 +669,70 @@ struct Engine::Impl {
 			}
 		}
 		f.post_ms = elapsed(post);
-		f.milliseconds = elapsed(start);
+		return fresh;
+	}
+	// Finds the face and runs the models for this frame; false when there is no usable face.
+	// A settled face runs its landmarks next to the models on the region of the previous
+	// analysis, which saves their time. A moving face or a slow rate first updates the region,
+	// so that the models never see a face that left it. Should the landmarks fail, the detector
+	// searches once, and the models repeat only if it found a face.
+	bool analyze_face(Frame &f, Maps &maps, uint64_t now)
+	{
+		bool fresh = false;
+		if (tracker.settled(now)) {
+			use_tracked_box(f);
+			fresh = run_models(f, maps, true, false, now);
+			if (!fresh && acquire_face(f, now)) {
+				maps = Maps{};
+				use_tracked_box(f);
+				fresh = run_models(f, maps, false, true, now);
+			}
+			if (!fresh && !tracker.may_bridge(now)) {
+				tracker.reset();
+				maps = Maps{};
+				return false;
+			}
+		} else {
+			fresh = (tracker.tracking() && run_mesh(f, tracker.region()) && accept_mesh(now)) ||
+				acquire_face(f, now);
+			if (!fresh && !tracker.may_bridge(now)) {
+				tracker.reset();
+				return false;
+			}
+			use_tracked_box(f);
+			f.detect_ms =
+				float(std::chrono::duration<float, std::milli>(Clock::now() - analysis_start).count());
+			fresh = run_models(f, maps, false, fresh, now);
+		}
+		f.landmarks_valid = fresh;
+		if (fresh && tracker.detector_due(now))
+			check_for_larger_face(f, now);
+		return true;
+	}
+	void analyze(Frame &f, Maps &maps)
+	{
+		TimingSpan total_span("engine", f.sequence);
+		maps = Maps{};
+		f.warning.clear();
+		analysis_start = Clock::now();
+		if (f.width == 0 || f.height == 0 || f.width > kMaxImageSide || f.height > kMaxImageSide ||
+		    f.pixels.size() != size_t(f.width) * f.height * 4)
+			throw std::runtime_error("Invalid image dimensions");
+		f.used_backend = backend;
+		f.status = 0;
+		if (!f.retouch && !f.smooth && !f.eyes) {
+			f.milliseconds = elapsed(analysis_start);
+			return;
+		}
+		// The bench and tests pass no capture time; the tracker then uses the wall clock.
+		const uint64_t now = f.captured_ns ? f.captured_ns
+						   : uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+								      analysis_start.time_since_epoch())
+								      .count());
+		tracker.begin(now, f.width, f.height, f.generation);
+		if (!analyze_face(f, maps, now))
+			f.status = 1;
+		f.milliseconds = elapsed(analysis_start);
 	}
 };
 Engine::Engine(const std::string &models, const std::string &cache, uint32_t backend, uint32_t quality)

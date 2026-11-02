@@ -274,7 +274,7 @@ ten seconds and when it is removed, each filter writes one `[beauti-stats]` line
 cumulative values to the OBS log: ticks, processed and repeated output, frame age,
 analysis and compose time, no-face results, bridged analyses, scene cuts, face
 losses by reason, recovery time, the wait for immediate readbacks, the capture rate, OBS
-frame time, and lagged frames.
+frame time, and lagged frames. The Automatic frame rate logs each change as `[beauti-rate]`.
 `tests/obs/live_stats.py LOG` returns the last line of each filter as JSON, and
 `tests/obs/bench_performance.py` records it for its runs.
 

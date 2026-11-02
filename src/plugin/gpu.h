@@ -8,7 +8,7 @@
 #include <string>
 class SkinGPU {
 	// One render target per intermediate result; values index passes[].
-	// Composite and Eyes are RGBA8 outputs; every other slot is RGBA32F.
+	// Composite and Eyes are RGBA8 outputs; see format_of for the others.
 	enum class Pass : int {
 		DodgeInit = 0,
 		DodgeFieldH,
@@ -59,6 +59,7 @@ class SkinGPU {
 	float local_spacing = 1;
 	int blur_radius = 3, tone_radius = 3, histogram_refine = 0;
 	bool upload(beauti::Texture &texture, uint32_t &size, uint32_t n, const std::vector<float> &values);
+	static gs_color_format format_of(Pass slot);
 	gs_texture_t *pass(Pass slot, const char *technique, uint32_t w, uint32_t h, gs_texture_t *input,
 			   gs_texture_t *second = nullptr);
 	struct FaceGrid {

@@ -140,6 +140,8 @@ struct Filter {
 	beauti::CapturePacer capture_pacer;
 	beauti::ReadbackPolicy readback_policy;
 	beauti::AnalysisRate analysis_rate;
+	beauti::PauseTimer analysis_pause, retouch_pause;
+	bool retouch_needed = true, paused = false;
 	double last_analysis_ms = 0;
 	uint64_t capture_interval = 0;
 	uint64_t last_result = 0;
@@ -199,7 +201,7 @@ struct Filter {
 #endif
 	};
 	void worker();
-	bool take_job(Job &work);
+	bool take_job(WorkerState &state, Job &work);
 	void ensure_engine(WorkerState &state, const Job &work);
 	void refresh_job(Job &work);
 	std::string visible_status();
@@ -235,11 +237,24 @@ struct Filter {
 	void invalidate_context();
 	uint32_t restart_generation();
 };
-// Wait for the next job; false when the filter is being destroyed.
-bool Filter::take_job(Job &work)
+// Wait for the next job; false when the filter is being destroyed. Without jobs for a while
+// (a hidden source, an inactive scene, all effects at zero) the models release their memory.
+bool Filter::take_job(WorkerState &state, Job &work)
 {
 	std::unique_lock<std::mutex> lock(mutex);
-	event.wait(lock, [&] { return stopping.load() || has_job; });
+	const auto ready = [&] { return stopping.load() || has_job; };
+	auto idle = std::chrono::duration_cast<std::chrono::milliseconds>(beauti::kEngineIdleRelease);
+#ifdef BEAUTI_CONTINUITY_TEST
+	if (const char *test = std::getenv("BEAUTI_CONTINUITY_TEST"); test && std::string(test) == "idle")
+		idle = std::chrono::seconds(1);
+#endif
+	if (state.engine && !event.wait_for(lock, idle, ready)) {
+		lock.unlock();
+		state.engine.reset();
+		blog(LOG_INFO, "[beauti] " BEAUTI_VERSION " engine released: no frames to analyze");
+		lock.lock();
+	}
+	event.wait(lock, ready);
 	if (stopping.load())
 		return false;
 	work = std::move(job);
@@ -366,7 +381,7 @@ void Filter::worker()
 	WorkerState state;
 	while (!stopping.load()) {
 		Job work;
-		if (!take_job(work))
+		if (!take_job(state, work))
 			break;
 		try {
 			ensure_engine(state, work);
@@ -805,9 +820,15 @@ bool Filter::prepare_context(RenderContext &ctx)
 		capture_interval = 1000000000ULL / requested;
 	} else {
 		const uint64_t frame_interval = obs_get_frame_interval_ns();
-		if (!captured_this_tick)
+		if (!captured_this_tick && !paused)
 			analysis_rate.tick(ctx.now, frame_interval, double(obs_get_average_frame_time_ns()) / 1e6);
-		capture_interval = analysis_rate.interval(frame_interval);
+		const uint64_t automatic = analysis_rate.interval(frame_interval);
+		if (automatic != capture_interval && beauti::stats_enabled())
+			blog(LOG_INFO,
+			     "[beauti-rate] automatic analysis rate: %.1f per second (%s; results %.1f of %.1f, analysis p90 %.1f ms, frame %.1f ms)",
+			     1e9 / double(automatic), analysis_rate.reason, analysis_rate.last_results,
+			     analysis_rate.last_expected, analysis_rate.last_analysis, analysis_rate.last_frame_ms);
+		capture_interval = automatic;
 	}
 	continuity.set_cadence(double(capture_interval) / 1e6);
 	return true;
@@ -837,6 +858,7 @@ bool Filter::receive_result(const RenderContext &ctx)
 		beauti::timing_log("result_received_age", r.sequence, double(ctx.now - r.captured_ns) / 1e6);
 	if (beauti::stats_enabled())
 		stats.result(r.status == 0, r.landmarks_valid);
+	analysis_rate.delivered();
 	if (!continuity.accept(r.sequence, r.captured_ns, ctx.now, r.milliseconds, r.status == 0))
 		return false;
 	if (beauti::stats_enabled())
@@ -864,11 +886,14 @@ void Filter::compose_active(const RenderContext &ctx, bool new_analysis)
 	}
 	finish_initialized = true;
 	const auto finishing = beauti::finishing_controls(values);
-	const Strengths s{retouch_ramp.sample(float(retouch.load()), frame_time),
-			  tone_ramp.sample(float(skin_tone.load()), frame_time),
-			  dodge_ramp.sample(float(dodge_burn.load()), frame_time),
-			  smooth_ramp.sample(float(smooth.load()), frame_time),
-			  eye_ramp.sample(active.frame.eyes ? float(eyes.load()) : 0.f, frame_time)};
+	Strengths s{retouch_ramp.sample(float(retouch.load()), frame_time),
+		    tone_ramp.sample(float(skin_tone.load()), frame_time),
+		    dodge_ramp.sample(float(dodge_burn.load()), frame_time),
+		    smooth_ramp.sample(float(smooth.load()), frame_time),
+		    eye_ramp.sample(active.frame.eyes ? float(eyes.load()) : 0.f, frame_time)};
+	// A result from before the retouch resumed has no retouch map yet.
+	if (!active.maps.blend_size)
+		s.retouch = 0;
 	if (!(new_analysis || s.retouch != shown_retouch || s.skin_tone != shown_tone || s.dodge_burn != shown_dodge ||
 	      s.smooth != shown_smooth || s.eyes != shown_eyes || finishing != shown_finishing))
 		return;
@@ -906,6 +931,22 @@ void Filter::service_readbacks(RenderContext &ctx)
 	if (captured_this_tick)
 		return;
 	captured_this_tick = true;
+	// All effects at zero: no captures and no analysis. The output is the source itself.
+	const bool any_effect = retouch.load() || skin_tone.load() || dodge_burn.load() || smooth.load() ||
+				eyes.load() || finish_targets[size_t(beauti::FinishControl::Color)].load() ||
+				retouch_ramp.value > 0 || tone_ramp.value > 0 || dodge_ramp.value > 0 ||
+				smooth_ramp.value > 0 || eye_ramp.value > 0 ||
+				finish_ramps[size_t(beauti::FinishControl::Color)].value > 0;
+	if (!analysis_pause.active(any_effect, ctx.now)) {
+		if (!paused) {
+			paused = true;
+			reset_display();
+			clear_stages();
+		}
+		return;
+	}
+	paused = false;
+	retouch_needed = retouch_pause.active(retouch.load() || retouch_ramp.value > 0, ctx.now);
 	if (stage_w != ctx.scaled_w || stage_h != ctx.scaled_h) {
 		clear_stages();
 		for (auto &s : stages) {
@@ -1050,8 +1091,9 @@ bool Filter::capture_snapshot(const RenderContext &ctx)
 				m.height = ctx.scaled_h;
 				m.generation = ctx.gen;
 				m.sequence = ++sequence;
-				// Keep both maps warm, including at 0/0/0/0: sliders only change GPU strengths.
-				m.retouch = 100;
+				// The maps stay warm so that sliders only change GPU strengths. A retouch at zero
+				// costs the most and stops after a moment; see service_readbacks.
+				m.retouch = retouch_needed ? 100 : 0;
 				m.smooth = 100;
 				m.eyes = (eyes.load() || eye_ramp.value > 0) ? 100 : 0;
 				m.backend = backend.load();

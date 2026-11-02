@@ -52,9 +52,10 @@ or mask boundaries separately; do not hide them in a full-frame average.
 
 CPU mode uses ORT automatic thread sizing ([decision 0016](decisions/0016-cpu-inference-thread-sizing.md));
 CPU sessions next to an accelerator use the auxiliary budget
-([decision 0022](decisions/0022-tensorrt-segmenter-and-auxiliary-threads.md)). Selected
-RGBA16F intermediate fields and reduced-resolution large-scale finishing statistics
-remain separate, unimplemented candidates; measure graphics-pass cost first.
+([decision 0022](decisions/0022-tensorrt-segmenter-and-auxiliary-threads.md)). Most
+intermediate fields use half floats ([decision 0025](decisions/0025-resource-use.md)).
+Reduced-resolution large-scale finishing statistics remain a separate, unimplemented
+candidate; measure graphics-pass cost first.
 
 A shared color cache between the finishing passes was measured and rejected: it
 did not pay for the extra graphics target and pass.

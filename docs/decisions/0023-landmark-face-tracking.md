@@ -28,8 +28,9 @@ the crop changes the model outputs, which shows as flicker on a still face.
 
 ## Consequences
 
-- Analysis takes about 2 ms longer, since FaceMesh now runs before the retouch model instead of
-  next to it. The detector mostly no longer runs.
+- The detector mostly no longer runs. A settled face runs FaceMesh next to the models on the
+  region of the previous analysis; a moving face or a slow rate runs it first, which costs its
+  time, so that the models never see a face that left the region.
 - A low analysis rate falls back to the detector when the face has moved out of the crop, so it
   behaves no worse than a search on every analysis.
 - A smaller face that is already followed stays selected until a larger one qualifies.

@@ -58,19 +58,22 @@ public:
 };
 // The automatic analysis rate: the canvas rate divided by a whole number, so that the processed
 // video keeps an even cadence instead of repeating frames at irregular moments. The divisor
-// grows when the analysis cannot keep the cadence or the OBS frame time nears its budget, and
-// shrinks after a stable period when the lower divisor would fit with room to spare. An
+// grows only on evidence: results that actually miss their ticks, or an OBS frame time near its
+// budget. An analysis that nearly fills the interval is no reason, as long as its results
+// arrive. The divisor shrinks after a stable period when the lower one would fit, and an
 // increase that had to be taken back waits longer before the next attempt. Times are ns.
 class AnalysisRate {
 	static constexpr uint64_t second = 1000000000;
 	static constexpr uint64_t evaluate_every = second, hold_after_change = 2 * second, first_retry = 10 * second,
 				  max_retry = 120 * second, failed_within = 5 * second;
 	static constexpr uint64_t max_rate = 60, min_budget_rate = 15;
-	static constexpr double analysis_limit = .9, analysis_room = .7, frame_limit = .85, frame_room = .6;
+	static constexpr double analysis_room = .85, frame_limit = .85, frame_room = .7;
+	static constexpr double delivery_limit = .9;
 	std::array<float, 32> recent{};
+	unsigned delivery_shortfalls = 0;
 	size_t count = 0, next = 0;
 	uint32_t current = 0;
-	uint64_t last_evaluation = 0, last_change = 0, last_increase = 0, retry = first_retry;
+	uint64_t last_evaluation = 0, last_change = 0, last_increase = 0, retry = first_retry, delivered_results = 0;
 
 	double analysis_p90()
 	{
@@ -86,6 +89,8 @@ class AnalysisRate {
 	}
 
 public:
+	// A worker result reached the render thread, with or without a face.
+	void delivered() { ++delivered_results; }
 	void analyzed(double ms)
 	{
 		recent[next] = float(ms);
@@ -105,18 +110,35 @@ public:
 		current = std::max(current, lowest);
 		if (now < last_evaluation + evaluate_every || !count)
 			return;
+		const double window = double(now - last_evaluation);
+		const double expected = window / double(frame_interval * current);
+		const double results = double(delivered_results);
+		delivered_results = 0;
 		last_evaluation = now;
+		// No results at all says nothing about the rate: the engine may be loading or failing.
+		if (results == 0) {
+			delivery_shortfalls = 0;
+			return;
+		}
+		// One short window can be the edge of such a pause, so it takes two in a row.
+		delivery_shortfalls = results < expected * delivery_limit ? delivery_shortfalls + 1 : 0;
 		const double tick_ms = double(frame_interval) / 1e6, analysis = analysis_p90();
 		const bool budget_may_drop =
 			double(second) / (double(frame_interval) * (current + 1)) >= double(min_budget_rate);
-		const bool too_slow = analysis > analysis_limit * tick_ms * current;
+		const bool too_slow = delivery_shortfalls >= 2;
 		const bool too_heavy = frame_ms > frame_limit * tick_ms && budget_may_drop;
+		last_results = results;
+		last_expected = expected;
+		last_frame_ms = frame_ms;
+		last_analysis = analysis;
 		if (too_slow || too_heavy) {
+			reason = too_slow ? "results missed their ticks" : "frame budget";
 			if (now < last_change + hold_after_change)
 				return;
 			if (last_increase && now < last_increase + failed_within)
 				retry = std::min(retry * 2, max_retry);
 			++current;
+			delivery_shortfalls = 0;
 			last_change = now;
 			last_increase = 0;
 			return;
@@ -128,11 +150,30 @@ public:
 		    frame_ms * double(current) / double(lower) < frame_room * tick_ms) {
 			current = lower;
 			last_change = last_increase = now;
+			reason = "room to rise";
 		}
 	}
 	uint32_t divisor() const { return std::max(current, 1u); }
+	// Why the divisor last changed, and the values behind that decision, for the log.
+	const char *reason = "start";
+	double last_results = 0, last_expected = 0, last_frame_ms = 0, last_analysis = 0;
 	uint64_t interval(uint64_t frame_interval) const { return frame_interval * divisor(); }
 };
+// Whether work behind a control is still needed. It stays on for a moment after the control
+// reaches zero, so that dragging a slider through zero does not restart anything. Times are ns.
+class PauseTimer {
+	static constexpr uint64_t delay = 2000000000;
+	uint64_t last_wanted = 0;
+
+public:
+	bool active(bool wanted, uint64_t now)
+	{
+		if (wanted)
+			last_wanted = now;
+		return last_wanted && now >= last_wanted && now - last_wanted < delay;
+	}
+};
+inline constexpr std::chrono::seconds kEngineIdleRelease{180};
 inline constexpr std::chrono::seconds kFirstRetryDelay{2}, kMaxRetryDelay{60};
 inline constexpr std::chrono::seconds next_retry_delay(std::chrono::seconds delay)
 {

@@ -14,7 +14,12 @@ All notable changes to Beauti are recorded here. The format follows
   at 4K and 60 FPS. Fixed rates remain available.
 - The filter now follows a face through its landmarks instead of searching every frame. Faces
   close to the camera and turned faces stay processed, a failure of up to 300 ms is bridged, and
-  the face region and skin mask flicker less on a still face. Analysis takes about 2 ms longer.
+  the face region and skin mask flicker less on a still face.
+- Beauti takes less from the rest of the machine. Worker threads sleep between analyses, which on
+  an M4 Pro halves the CPU time; the GPU fields use half floats, which lowers the OBS frame time at
+  4K by about 15%; the analysis is about 10% faster on Apple Acceleration.
+- Retouch at 0% stops its model, all effects at 0% stop the analysis after two seconds, and models
+  release their memory after three minutes without frames.
 - Another face takes over only when it stays clearly larger.
 
 ### Added

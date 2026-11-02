@@ -46,6 +46,28 @@ bool SkinGPU::upload(beauti::Texture &texture, uint32_t &size, uint32_t n, const
 			     uint32_t(size_t(n) * 4 * sizeof(float)), false);
 	return true;
 }
+// The final passes hold display pixels. Intermediate fields need more than 8 bits, and half
+// floats cost clearly less than 32-bit floats at 4K. Two kinds of field stay in 32-bit floats:
+// the tone histograms count up to 4096 samples, which half floats cannot represent exactly, and
+// the Micro Dodge & Burn statistics hold squares, whose differences half floats would lose.
+gs_color_format SkinGPU::format_of(Pass slot)
+{
+	switch (slot) {
+	case Pass::Composite:
+	case Pass::Eyes:
+		return GS_RGBA;
+	case Pass::ToneHistogram:
+	case Pass::ToneHistogramRefined:
+	case Pass::ToneMedian:
+	case Pass::ToneMedianRefined:
+	case Pass::DodgeBase:
+	case Pass::DodgeStatsH:
+	case Pass::DodgeStatsV:
+		return GS_RGBA32F;
+	default:
+		return GS_RGBA16F;
+	}
+}
 // Render one technique of beauti.effect into the slot's render target with input
 // (and optionally second) bound; returns the result texture, or nullptr on failure.
 gs_texture_t *SkinGPU::pass(Pass slot, const char *technique, uint32_t w, uint32_t h, gs_texture_t *input,
@@ -53,8 +75,7 @@ gs_texture_t *SkinGPU::pass(Pass slot, const char *technique, uint32_t w, uint32
 {
 	auto &target = passes[size_t(slot)];
 	if (!target)
-		target.reset(gs_texrender_create((slot == Pass::Composite || slot == Pass::Eyes) ? GS_RGBA : GS_RGBA32F,
-						 GS_ZS_NONE));
+		target.reset(gs_texrender_create(format_of(slot), GS_ZS_NONE));
 	if (!target)
 		return nullptr;
 	gs_texrender_reset(target.get());
@@ -218,6 +239,8 @@ bool SkinGPU::sync_maps(const beauti::Maps &maps, uint64_t map_revision, bool &r
 	// partial upload or failed mask pass.
 	uploaded_revision = 0;
 	mask_field = nullptr;
+	if (!maps.blend_size)
+		blend_size = 0; // A paused retouch: compared above, and its stale texture has strength zero.
 	return upload(blend, blend_size, maps.blend_size, maps.blend) &&
 	       upload(mask, mask_size, maps.mask_size, maps.mask) && upload(eyes, eye_size, maps.eye_size, maps.eyes);
 }

@@ -51,6 +51,10 @@ public:
 	// The region follows once the center or size moved by this share of the extent, or the
 	// rotation by this many radians (about one degree).
 	static constexpr float hold_share = .01f, hold_angle = .02f;
+	// Above this rate of change a face counts as moving, and the region is updated before the
+	// models run. The crop has room for less, so a one-analysis lag does not cut the face.
+	static constexpr float moving_share = .05f;
+	static constexpr uint64_t settled_gap = 110 * ms;
 	// A switch needs a face that is separate from the current one, clearly larger, and seen
 	// by consecutive detector checks.
 	static constexpr float switch_area_ratio = 1.5f, switch_max_iou = .1f;
@@ -85,6 +89,7 @@ public:
 		    std::abs(center.y - held_center.y) <= side * hold_share &&
 		    std::abs(side - held_side) <= side * hold_share && std::abs(angle - roi.angle) <= hold_angle) {
 			last_valid = now;
+			moving = false;
 			return true;
 		}
 		const float half = side * box_scale * .5f;
@@ -94,6 +99,8 @@ public:
 		if (box.right - box.left < min_face_side || box.bottom - box.top < min_face_side)
 			return false;
 		current = box;
+		moving = active && std::max({std::abs(center.x - held_center.x), std::abs(center.y - held_center.y),
+					     std::abs(side - held_side)}) > side * moving_share;
 		roi = {center, side * roi_scale, angle};
 		held_center = center;
 		held_side = side;
@@ -109,6 +116,12 @@ public:
 	{
 		return active && now >= last_valid &&
 		       now - last_valid <= std::max(bridge, std::min(interval + interval / 4, stale_gap));
+	}
+	// Whether the next models can run on the current region while its landmarks are computed:
+	// the face barely moved at the last analysis, and that analysis was recent.
+	bool settled(uint64_t now) const
+	{
+		return active && !moving && now >= last_valid && now - last_valid <= settled_gap;
 	}
 	bool detector_due(uint64_t now) const
 	{
@@ -128,7 +141,7 @@ public:
 	}
 	void reset()
 	{
-		active = false;
+		active = moving = false;
 		last_valid = last_analysis = last_detector = interval = 0;
 		larger_checks = 0;
 	}
@@ -138,7 +151,7 @@ private:
 	FaceBox current;
 	EyePoint held_center;
 	float held_side = 0;
-	bool active = false;
+	bool active = false, moving = false;
 	uint32_t frame_w = 0, frame_h = 0, frame_generation = 0;
 	uint64_t last_valid = 0, last_analysis = 0, last_detector = 0, interval = 0;
 	unsigned larger_checks = 0;

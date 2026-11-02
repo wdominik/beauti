@@ -34,3 +34,4 @@ change that implements it. The record states the measurements it rests on.
 | [0022](0022-tensorrt-segmenter-and-auxiliary-threads.md) | The segmenter runs on TensorRT RTX; auxiliary CPU threads follow the cores | 2026-10-28 | Accepted for development |
 | [0023](0023-landmark-face-tracking.md) | Follow the face through its landmarks, with a short bridge |
 | [0024](0024-readback-timing-and-automatic-rate.md) | Read captures back at once when it is cheap; automatic analysis rate |
+| [0025](0025-resource-use.md) | Sleeping thread pools, pauses at zero, idle release, half-float fields |

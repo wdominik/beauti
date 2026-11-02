@@ -131,6 +131,24 @@ TEST_CASE("A new scene, another image size, or a long pause forgets the face", "
 	CHECK(next.tracking());
 }
 
+TEST_CASE("Only a recent, barely moving face counts as settled", "[face-tracker]")
+{
+	CHECK_FALSE(FaceTracker{}.settled(1000 * ms));
+	auto tracker = following();
+	CHECK(tracker.settled(1033 * ms));
+	CHECK(tracker.settled(1000 * ms + FaceTracker::settled_gap));
+	CHECK_FALSE(tracker.settled(1000 * ms + FaceTracker::settled_gap + 1));
+	const auto small_step = face(650, 360, 200);
+	REQUIRE(tracker.update(1033 * ms, small_step, small_step[0], small_step[1]));
+	CHECK(tracker.settled(1066 * ms));
+	const auto fast = face(700, 360, 200);
+	REQUIRE(tracker.update(1066 * ms, fast, fast[0], fast[1]));
+	CHECK_FALSE(tracker.settled(1100 * ms));
+	const auto still = fast;
+	REQUIRE(tracker.update(1100 * ms, still, still[0], still[1]));
+	CHECK(tracker.settled(1133 * ms));
+}
+
 TEST_CASE("The detector looks for another face about once per second", "[face-tracker]")
 {
 	auto tracker = following();
