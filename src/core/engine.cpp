@@ -5,6 +5,7 @@
 // and the landmarks use ONNX Runtime on the CPU. Compositing happens on the GPU (src/plugin/gpu.cpp).
 #include "engine.h"
 #include "eyes.h"
+#include "face_tracker.h"
 #include "backend.h"
 #include "paths.h"
 #include "timing.h"
@@ -35,10 +36,13 @@ constexpr int kRetouchSideFast = 384, kRetouchSideFull = 512;
 constexpr int kDetectorSide = 192, kDetectorGrid = 48;
 constexpr float kDetectorScoreThreshold = .6f, kDetectorIouThreshold = .3f;
 constexpr size_t kDetectorMaxCandidates = 100;
+// The detector misses a face that nearly fills the image. Searching again with the image at
+// this share of the input brings such a face into the range the model was trained for.
+constexpr float kDetectorSearchShrink = .7f;
 // Square analysis crop around the detected box. BlazeFace boxes are tight; 1.86x gives the
 // crop size the retouch output was validated with (docs/decisions/0021).
 constexpr float kFaceBoxScale = 1.86f;
-constexpr int kMinFaceSide = 32;
+constexpr int kMinFaceSide = FaceTracker::min_face_side;
 // MediaPipe Multiclass segmentation: 256 px input, six classes; face skin is class 3.
 constexpr int kSegmenterSide = 256, kSegmenterClasses = 6, kSegmenterFaceSkin = 3;
 constexpr const char *kDetectorModel = "native/face_detector.onnx", *kMeshModel = "native/face_landmarks.onnx",
@@ -304,13 +308,12 @@ struct Engine::Impl {
 	{
 		return cache_root + "/" + model + "/" + tag;
 	}
-	EyeCrop face_crop;
 	std::vector<float> eye_input;
 	bool eyes_unavailable = false; // Set after the iris model failed; cleared with the engine.
-	// FaceMesh landmarks of the current analysis, computed at most once per frame; the
-	// skin mask and the eye correction share them.
-	std::vector<EyePoint> mesh_points;
-	bool mesh_done = false, mesh_valid = false;
+	FaceTracker tracker;
+	// FaceMesh landmarks of the last accepted analysis; the skin mask and the eye correction
+	// share them. A bridged analysis keeps them, so a failed model run only fills the candidates.
+	std::vector<EyePoint> mesh_points, mesh_candidate;
 	uint32_t backend;
 	int nr, ns = kSegmenterSide;
 	InputBuffer detector_input, retouch_input, skin_input;
@@ -380,9 +383,14 @@ struct Engine::Impl {
 		retouch.reset();
 		detector.reset();
 	}
+	// A face the detector found: its analysis box and the crop for the landmark model.
+	struct DetectedFace {
+		FaceBox box;
+		EyeCrop crop;
+	};
 	// Greedy NMS on boxes in detector coordinates (frame = box / scale), then the largest
-	// face of at least kMinFaceSide becomes f.box: a kFaceBoxScale square around the box.
-	bool choose_face(Frame &f, std::vector<Box> boxes, float scale)
+	// face of at least kMinFaceSide: a kFaceBoxScale square around the box.
+	bool choose_face(const Frame &f, std::vector<Box> boxes, float scale, DetectedFace &face)
 	{
 		std::stable_sort(boxes.begin(), boxes.end(),
 				 [](const Box &a, const Box &b) { return a.score > b.score; });
@@ -407,21 +415,17 @@ struct Engine::Impl {
 			    r = std::min(int(f.width), int(x + fw / 2 + s / 2)),
 			    d = std::min(int(f.height), int(y + fh / 2 + s / 2));
 			if (r - l >= kMinFaceSide && d - t >= kMinFaceSide) {
-				f.box[0] = l;
-				f.box[1] = t;
-				f.box[2] = r;
-				f.box[3] = d;
-				face_crop = {{x + fw / 2, y + fh / 2}, s, b.eye_angle};
+				face = {{l, t, r, d}, {{x + fw / 2, y + fh / 2}, s, b.eye_angle}};
 				return true;
 			}
 		}
 		return false;
 	}
-	// BlazeFace: the frame letterboxed into 192 px; per anchor, box and eye points are
-	// offsets in input pixels. The largest plausible face becomes f.box.
-	bool detect(Frame &f)
+	// BlazeFace: the frame letterboxed into 192 px, at the given share of that size; per
+	// anchor, box and eye points are offsets in input pixels.
+	bool detect(const Frame &f, float shrink, DetectedFace &face)
 	{
-		const float scale = float(kDetectorSide) / float(std::max(f.width, f.height));
+		const float scale = float(kDetectorSide) * shrink / float(std::max(f.width, f.height));
 		const int w = std::max(1, int(std::nearbyint(float(f.width) * scale))),
 			  h = std::max(1, int(std::nearbyint(float(f.height) * scale)));
 		{
@@ -447,7 +451,7 @@ struct Engine::Impl {
 			boxes.push_back({r[0] + ax - r[2] / 2, r[1] + ay - r[3] / 2, r[2], r[3], score,
 					 std::atan2(r[7] - r[5], r[6] - r[4])});
 		}
-		return choose_face(f, boxes, scale);
+		return choose_face(f, boxes, scale, face);
 	}
 	// Landmark model geometry: FaceMesh V2 takes a 256 px face crop and returns 478
 	// points; the iris model takes a 64 px eye crop 2.3 eye widths wide. Points
@@ -458,32 +462,71 @@ struct Engine::Impl {
 	static constexpr float kMinFaceLogit = 1.3862944f;
 	// Eye corners in the FaceMesh topology: outer and inner corner of each eye.
 	static constexpr int kEyeCorners[2][2] = {{33, 133}, {362, 263}};
-	// FaceMesh on the rotated face crop, at most once per analysis; false when the
-	// face score or any landmark is implausible.
-	bool ensure_mesh(const Frame &f)
+	// FaceMesh on a rotated face crop, into mesh_candidate; false when the face score or any
+	// landmark is implausible.
+	bool run_mesh(const Frame &f, const EyeCrop &crop)
 	{
-		if (mesh_done)
-			return mesh_valid;
-		mesh_done = true;
-		mesh_valid = false;
-		if (!std::isfinite(face_crop.angle))
+		TimingSpan span("face_mesh", f.sequence);
+		if (!std::isfinite(crop.angle))
 			return false;
-		sample_eye_crop(f, face_crop, kMeshSide, false, eye_input);
+		sample_eye_crop(f, crop, kMeshSide, false, eye_input);
 		auto mesh = face_landmarks->run(eye_input, kMeshSide, kMeshSide, "input", {"landmarks", "score"});
 		const float score = mesh.data(1)[0];
 		if (!std::isfinite(score) || score < kMinFaceLogit)
 			return false;
-		mesh_points.resize(kMeshPoints);
+		mesh_candidate.resize(kMeshPoints);
 		const float *landmarks = mesh.data(0);
 		constexpr float lo = -float(kMeshSide), hi = 2.f * float(kMeshSide);
-		for (size_t i = 0; i < mesh_points.size(); ++i) {
+		for (size_t i = 0; i < mesh_candidate.size(); ++i) {
 			float x = landmarks[3 * i], y = landmarks[3 * i + 1];
 			if (!std::isfinite(x) || !std::isfinite(y) || x < lo || x > hi || y < lo || y > hi)
 				return false;
-			mesh_points[i] = face_crop.project(x, y, kMeshSide);
+			mesh_candidate[i] = crop.project(x, y, kMeshSide);
 		}
-		mesh_valid = true;
 		return true;
+	}
+	// Accepts mesh_candidate as the landmarks of this analysis.
+	bool accept_mesh(uint64_t now)
+	{
+		if (!tracker.update(now, mesh_candidate, mesh_candidate[size_t(kEyeCorners[0][0])],
+				    mesh_candidate[size_t(kEyeCorners[1][1])]))
+			return false;
+		mesh_points.swap(mesh_candidate);
+		return true;
+	}
+	// A periodic detector pass: move to a face that stays clearly larger than the tracked one.
+	void check_for_larger_face(const Frame &f, uint64_t now)
+	{
+		DetectedFace face;
+		const bool found = detect(f, 1, face);
+		if (tracker.larger_face_seen(now, found ? &face.box : nullptr) && run_mesh(f, face.crop))
+			accept_mesh(now);
+	}
+	// Finds the face region of this analysis. Fresh: landmarks of this frame. Bridged: the last
+	// region and landmarks, on this frame. None: no usable face.
+	enum class FaceFound { Fresh, Bridged, None };
+	FaceFound locate_face(Frame &f, uint64_t now)
+	{
+		tracker.begin(now, f.width, f.height, f.generation);
+		bool found = tracker.tracking() && run_mesh(f, tracker.region()) && accept_mesh(now);
+		if (found && tracker.detector_due(now))
+			check_for_larger_face(f, now);
+		if (!found) {
+			DetectedFace face;
+			found = (detect(f, 1, face) || detect(f, kDetectorSearchShrink, face)) &&
+				run_mesh(f, face.crop) && accept_mesh(now);
+		}
+		const bool bridged = !found && tracker.may_bridge(now);
+		if (!found && !bridged) {
+			tracker.reset();
+			return FaceFound::None;
+		}
+		const auto &box = tracker.box();
+		f.box[0] = box.left;
+		f.box[1] = box.top;
+		f.box[2] = box.right;
+		f.box[3] = box.bottom;
+		return found ? FaceFound::Fresh : FaceFound::Bridged;
 	}
 	// The Iris model loads lazily, on the landmark device with the auxiliary CPU budget.
 	void analyze_eyes(const Frame &f, Maps &maps)
@@ -493,8 +536,6 @@ struct Engine::Impl {
 			iris_landmarks = std::make_unique<Session>(
 				environment.get(), model_root / kIrisModel, placement.landmarks_backend,
 				model_cache(kIrisModel, "iris"), auxiliary_cpu_threads());
-		if (!ensure_mesh(f))
-			return;
 		const auto &points = mesh_points;
 		for (int eye = 0; eye < 2; ++eye) {
 			EyeContour lid;
@@ -518,9 +559,8 @@ struct Engine::Impl {
 		}
 	}
 	// Raw mask from the segmenter's probabilities (NHWC): R = face-skin label, G = its
-	// probability; FaceMesh features are cleared. Without landmarks the mask stays
-	// empty, so no eye, brow, or lip pixel is treated as skin.
-	void pack_mask(const Frame &f, const float *probabilities, bool landmarks, Maps &maps)
+	// probability; FaceMesh features are cleared, so no eye, brow, or lip pixel counts as skin.
+	void pack_mask(const Frame &f, const float *probabilities, Maps &maps)
 	{
 		const size_t count = size_t(ns) * size_t(ns);
 		maps.raw_mask = true;
@@ -530,14 +570,11 @@ struct Engine::Impl {
 		for (size_t i = 0; i < count; ++i) {
 			const float *p = probabilities + i * kSegmenterClasses;
 			const auto label = std::max_element(p, p + kSegmenterClasses) - p;
-			if (landmarks) {
-				maps.mask[4 * i] = label == kSegmenterFaceSkin ? 1.f : 0.f;
-				maps.mask[4 * i + 1] = p[kSegmenterFaceSkin];
-			}
+			maps.mask[4 * i] = label == kSegmenterFaceSkin ? 1.f : 0.f;
+			maps.mask[4 * i + 1] = p[kSegmenterFaceSkin];
 			maps.mask[4 * i + 3] = 1;
 		}
-		if (landmarks)
-			exclude_features(f, mesh_points, uint32_t(ns), kFeatureMargin, maps.mask);
+		exclude_features(f, mesh_points, uint32_t(ns), kFeatureMargin, maps.mask);
 	}
 	// Eyes are optional: a missing or failing Iris model disables only this stage
 	// for the engine's lifetime instead of discarding the retouch and skin maps.
@@ -553,7 +590,7 @@ struct Engine::Impl {
 			f.warning = std::string("Eyes disabled: ") + e.what();
 		}
 	}
-	// Detect, prepare both model inputs from the face crop, run the skin mask on a
+	// Locate the face, prepare both model inputs from its region, run the skin mask on a
 	// second thread while the retouch graph runs, validate the outputs, and pack
 	// them as RGBA float maps for the compositor.
 	void analyze(Frame &f, Maps &maps)
@@ -561,7 +598,6 @@ struct Engine::Impl {
 		TimingSpan total_span("engine", f.sequence);
 		maps = Maps{};
 		f.warning.clear();
-		mesh_done = false;
 		auto start = Clock::now();
 		if (f.width == 0 || f.height == 0 || f.width > kMaxImageSide || f.height > kMaxImageSide ||
 		    f.pixels.size() != size_t(f.width) * f.height * 4)
@@ -572,7 +608,14 @@ struct Engine::Impl {
 			f.milliseconds = elapsed(start);
 			return;
 		}
-		if (!detect(f)) {
+		// The bench and tests pass no capture time; the tracker then uses the wall clock.
+		const uint64_t now = f.captured_ns ? f.captured_ns
+						   : uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+								      start.time_since_epoch())
+								      .count());
+		const FaceFound face = locate_face(f, now);
+		f.landmarks_valid = face == FaceFound::Fresh;
+		if (face == FaceFound::None) {
 			f.status = 1;
 			f.milliseconds = elapsed(start);
 			return;
@@ -591,39 +634,32 @@ struct Engine::Impl {
 		const float *B = nullptr;
 		std::future<const float *> future;
 		const auto dispatched = timing_enabled() ? Clock::now() : Clock::time_point{};
-		// With the skin stages active, the eye models run on the landmark thread too.
-		const bool eyes_with_mask = f.smooth && f.eyes && !eyes_unavailable;
+		// Eye maps need landmarks of this frame. With the skin mask active, the eye models
+		// run next to the segmenter, which waits on the GPU or its own pool.
+		const bool eyes_wanted = f.eyes && !eyes_unavailable && face == FaceFound::Fresh;
+		const bool eyes_with_mask = f.smooth && eyes_wanted;
 		if (f.smooth) {
-			// The whole mask (segmenter, FaceMesh, feature cut-out) runs on this second
-			// thread while the retouch model occupies the Neural Engine or the device.
-			// Only maps.mask and the FaceMesh members are written here; the join below
-			// orders them before the eye correction reads the landmarks.
+			// The whole mask (segmenter, feature cut-out) runs on this second thread while
+			// the retouch model occupies the Neural Engine or the device. Only maps.mask is
+			// written here, and maps.eyes on the eye thread.
 			TimingSpan span("skin_dispatch", f.sequence);
 			future = std::async(std::launch::async, [&, dispatched] {
 				if (timing_enabled())
 					timing_log("skin_start_delay", f.sequence, elapsed(dispatched));
 				TimingSpan span("skin_run", f.sequence);
-				// FaceMesh and Iris (CPU) overlap the segmenter, which waits on the GPU or its own
-				// pool. maps.eyes is written here, maps.mask after the join below.
-				auto landmarks = std::async(std::launch::async, [&] {
-					bool mesh = false;
-					{
-						TimingSpan mesh_span("face_mesh", f.sequence);
-						mesh = ensure_mesh(f);
-					}
-					if (eyes_with_mask)
-						try_eyes(f, maps);
-					return mesh;
-				});
+				std::future<void> eye_models;
+				if (eyes_with_mask)
+					eye_models = std::async(std::launch::async, [&] { try_eyes(f, maps); });
 				const float *classes = [&] {
 					TimingSpan run_span("segmenter_run", f.sequence);
 					return skin->run(skin_input.values, ns);
 				}();
-				const bool mesh = landmarks.get();
+				if (eye_models.valid())
+					eye_models.get();
 				for (int i = 0; i < kSegmenterClasses * NS; ++i)
 					if (!std::isfinite(classes[i]))
 						throw std::runtime_error("Invalid skin mask");
-				pack_mask(f, classes, mesh, maps);
+				pack_mask(f, classes, maps);
 				return classes;
 			});
 		}
@@ -636,7 +672,7 @@ struct Engine::Impl {
 			TimingSpan span("skin_wait", f.sequence);
 			static_cast<void>(future.get()); // rethrows a segmentation failure
 		}
-		if (f.eyes && !eyes_unavailable && !eyes_with_mask)
+		if (eyes_wanted && !eyes_with_mask)
 			try_eyes(f, maps);
 		if (eyes_unavailable)
 			f.eyes = 0;

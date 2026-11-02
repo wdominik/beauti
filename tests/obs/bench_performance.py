@@ -12,6 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import live_stats
 import numpy as np
 
 
@@ -43,6 +44,7 @@ def main():
     p.add_argument('--static', action='store_true')
     p.add_argument('--quality', choices=['fast', 'full'], default='fast')
     p.add_argument('--canvas-fps', type=int, choices=range(1, 121), default=30, metavar='1-120')
+    p.add_argument('--eyes', type=int, default=0, help='Eyes strength')
     p.add_argument('--analysis-fps', type=int, choices=range(1, 61), metavar='1-60', help='Plugin target frame rate')
     a = p.parse_args()
     if a.obs_runtime is None:
@@ -96,6 +98,7 @@ def main():
                 'Beauti',
                 '50',
                 '50',
+                str(a.eyes),
             ]
             with (out / (name + '.log')).open('w') as log:
                 subprocess.run(command, stdout=log, stderr=log, env=env, check=True, timeout=a.seconds + 300)
@@ -132,6 +135,7 @@ def main():
                 'render_ms': data['render_ms'],
                 'lagged_after_warmup': data['lagged_frames_after_warmup'],
                 'sparse_worker_samples': timings,
+                'live_stats': next(iter(live_stats.parse(log).values()), None),
             }
             results.append(record)
             print(json.dumps(record), flush=True)
@@ -150,6 +154,7 @@ def main():
                 'analysis_long_side': 1280,
                 'quality': 'Performance' if a.quality == 'fast' else 'High Quality',
                 'controls': [60, 50, 50, 50],
+                'eyes': a.eyes,
                 'warmup_excluded_seconds': a.warmup_seconds,
                 'host': {'system': platform.system(), 'release': platform.release(), 'machine': platform.machine()},
                 'fixture_sha256': hashlib.sha256(a.fixture.read_bytes()).hexdigest(),

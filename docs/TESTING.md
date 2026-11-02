@@ -77,7 +77,8 @@ individual checks establish.
 - **CTest** runs the native tests: `uv run cmake --workflow --preset macos`, or
   `ctest --test-dir build/macos` after a build. They are Catch2 test cases in
   `tests/native/`, compiled into one executable, `beauti-tests`; the CTest names
-  `continuity`, `pixel-quantize`, `provider-policy`, and `pacing` select them by tag, and
+  `continuity`, `pixel-quantize`, `provider-policy`, `pacing`, `ramp`, `scene-cut`,
+  `live-stats`, and `face-tracker` select them by tag, and
   `build/macos/beauti-tests "[continuity]"` reports a failure with its values.
 - **pytest** runs every Python test: `uv run pytest`. The build-pipeline tests need
   nothing; the numerical reference tests need the reference library
@@ -267,6 +268,30 @@ with `tests/obs/analyze_pipeline_timing.py --log LOG --output JSON`; optionally 
 `--profiles DIRECTORY` for separately collected ORT host profiles. These do not
 measure GPU event/kernel time. The throughput runner clears both diagnostic
 environment variables.
+
+Opt-in `BEAUTI_STATS=1` measures a live session without the per-stage output. Every
+ten seconds and when it is removed, each filter writes one `[beauti-stats]` line with
+cumulative values to the OBS log: ticks, processed and repeated output, frame age,
+analysis and compose time, no-face results, bridged analyses, scene cuts, face
+losses by reason, recovery time, OBS frame time, and lagged frames.
+`tests/obs/live_stats.py LOG` returns the last line of each filter as JSON, and
+`tests/obs/bench_performance.py` records it for its runs.
+
+`tests/native/run_clip.py` plays a frame sequence through `beauti-bench` without a
+camera or OBS, so that every machine measures the same input: a video file (`--clip`),
+or a still image in a seeded synthetic scenario (`--image`, `--scenario`). It reports
+misses and their runs, empty skin masks, face box steps, and the frame-to-frame change
+of the mask and the retouch map. Maps are compared in frame coordinates
+(`tests/native/clip_metrics.py`), so a moving box does not count as flicker. The input
+luma step gives the change that the source itself contains. These are model outputs,
+not composited pixels, and each frame is analyzed as if analysis always kept up. Keep
+clips of real people outside the repository.
+
+```sh
+cd tests/native
+uv run python run_clip.py --bundle ../../dist/beauti.plugin --backend coreai \
+  --cache /tmp/beauti-clips --output /tmp/beauti-clips.json --clip CLIP.mp4
+```
 
 The native graphics checker accepts `bundle input.rgba output_directory width
 height [backend] [quality]`; quality 0/1 selects the actual Performance/High

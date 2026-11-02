@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass
+from typing import BinaryIO
 
 MAGIC = 0x324C4B53
 # magic, width, height, retouch, smooth, sequence; followed by width*height*4 RGBA bytes
@@ -90,3 +91,15 @@ def parse_responses(data: bytes) -> list[Response]:
             )
         )
     return responses
+
+
+def read_response(stream: BinaryIO) -> Response:
+    """Read one response from the worker's stdout, for clips too long to hold in memory."""
+    header = stream.read(RESPONSE.size)
+    if len(header) != RESPONSE.size:
+        raise ValueError('truncated response header')
+    fields = RESPONSE.unpack(header)
+    if fields[0] != MAGIC:
+        raise ValueError(f'bad magic: {fields[0]:#x}')
+    payload = stream.read((fields[6] * fields[6] + fields[7] * fields[7]) * FLOATS_PER_TEXEL * 4)
+    return parse_responses(header + payload)[0]

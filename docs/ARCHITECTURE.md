@@ -81,14 +81,16 @@ live in `src/core/tuning.h`, the shader-only ones at the top of `gpu.cpp`.
 
 `src/core/engine.cpp` prepares the detector, retouch, and segmenter inputs from the
 RGBA readback (shared resize coordinates, SSE2 quantization on Windows x64; every
-model takes RGB in [-1, 1]). MediaPipe BlazeFace (full range, 192 px letterbox) finds
-the largest face; a 1.86x square around its box is the analysis crop. The retouch
-U-Net then runs on the selected device while a second thread runs the MediaPipe
-Multiclass segmenter (256 px) and, overlapping it, FaceMesh V2 and (for Eyes) Iris on
-the CPU. The mask is
-the segmenter's face-skin class with the FaceMesh eye, brow, and lip contours cut out
-(grown by 1.5 mask pixels); without plausible landmarks the mask stays empty, so no
-feature is ever treated as skin. Both maps are returned as RGBA float maps.
+model takes RGB in [-1, 1]). `src/core/face_tracker.h` decides which face region an
+analysis uses ([decision 0023](decisions/0023-landmark-face-tracking.md)): FaceMesh V2 on the
+CPU follows an established face from the landmarks of the previous analysis.
+MediaPipe BlazeFace (full range, 192 px letterbox) finds a face when none is followed and
+checks about once per second for a clearly larger one. The analysis crop is a square of 1.75
+landmark extents. The retouch U-Net then runs on the selected device while a second thread
+runs the MediaPipe Multiclass segmenter (256 px) and, overlapping it, Iris for Eyes on the CPU.
+The mask is the segmenter's face-skin class with the FaceMesh eye, brow, and lip contours cut
+out (grown by 1.5 mask pixels), so no feature is ever treated as skin. Both maps are returned
+as RGBA float maps.
 
 `src/backends/` centralizes device and model selection: Core AI on macOS, TensorRT RTX
 on Windows, and the CPU everywhere. The retouch and segmenter stages share one

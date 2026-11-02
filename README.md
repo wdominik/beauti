@@ -1,9 +1,10 @@
 # Beauti
 
 Beauti is an OBS Studio effect filter for real-time skin retouching and finishing.
-It finds the largest face in a source, runs small neural networks locally (a face
-detector, a retouching U-Net, a skin segmentation model, and face landmarks that
-keep eyes, brows, and lips out of the skin mask), and composes the result on the GPU
+It finds the largest face in a source and follows it, runs small neural networks
+locally (a face detector, a retouching U-Net, a skin segmentation model, and face
+landmarks that follow the face and keep eyes, brows, and lips out of the skin mask),
+and composes the result on the GPU
 in six independent stages: Retouch, Skin Tone, Local Color Smoothing, Micro Dodge &
 Burn, Smooth, and Eyes. Eyes adds a small iris model. Everything runs on your
 machine; nothing leaves it.
@@ -122,11 +123,12 @@ and Traditional). Missing translations fall back to English.
 
 ## Limits
 
-- One face: the largest detected face is processed; others are left untouched.
+- One face: the largest face is processed and followed; others are left untouched. Another
+  face takes over only when it stays clearly larger.
 - SDR only: sources that are not sRGB, or larger than 4096 px on a side, are
   passed through unchanged. HDR is not validated.
-- When no face is found for two consecutive analyses, the filter fades back to
-  the unprocessed image and resumes automatically when a face returns.
+- A failure of up to 300 ms, such as a brief occlusion, is bridged. After that the filter fades
+  back to the unprocessed image and resumes automatically when a face returns.
 - 4K at a 30 FPS canvas: an M4 Pro delivers 30 processed frames per second in
   both quality modes.
 

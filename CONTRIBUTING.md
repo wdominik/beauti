@@ -39,7 +39,7 @@ folders; see the note in [docs/BUILD.md](docs/BUILD.md).
 | Directory | Contents |
 | --- | --- |
 | `src/plugin/` | OBS filter lifecycle, settings, GPU composition (`filter.cpp`, `gpu.cpp`) |
-| `src/core/` | Native inference engine, paths, timing, continuity policy |
+| `src/core/` | Native inference engine, paths, timing, and render-thread policies without OBS (continuity, face tracking, capture pacing, strength ramp, scene cut, live statistics) |
 | `src/backends/` | Device selection and model plans; the Core AI adapter (Swift, C interface); TensorRT RTX and CPU providers |
 | `src/effects/` | Portable C++ reference finishing algorithms (separate shared library) |
 | `data/` | OBS effect shaders and locale catalogs |

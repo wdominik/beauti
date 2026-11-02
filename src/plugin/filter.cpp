@@ -8,6 +8,9 @@
 #include "timing.h"
 #include "continuity.h"
 #include "pacing.h"
+#include "ramp.h"
+#include "scene_cut.h"
+#include "live_stats.h"
 #include "notice.h"
 #include <array>
 #include "backend.h"
@@ -30,13 +33,8 @@
 #include <thread>
 OBS_DECLARE_MODULE()
 namespace {
-constexpr uint64_t kStrengthRampNs = 150000000; // 150 ms slider transitions
 constexpr uint32_t kMaxSourceSide = 4096;
 constexpr uint32_t kSnapshotSlots = 8, kReadbackSlots = 2;
-// Scene-cut heuristic: a 16x16 RGB sample grid taken from each readback.
-constexpr unsigned kSceneGrid = 16, kSceneSamples = kSceneGrid * kSceneGrid * 3;
-constexpr unsigned kSceneBlockChange = 240, kSceneChangedBlocks = 180;
-constexpr double kSceneMeanChange = 70;
 constexpr uint32_t kLogFirstFrames = 5, kLogEveryFrames = 90;
 // On-disk layout of the provider cache; change when the layout changes.
 constexpr const char *kCacheNamespace = "native-0.6";
@@ -55,6 +53,7 @@ MODULE_EXPORT const char *obs_module_author(void)
 	return "wdominik";
 }
 using beauti::Frame;
+using beauti::StrengthRamp;
 static std::string resource(const char *name)
 {
 	char *p = obs_module_file(name);
@@ -97,25 +96,6 @@ struct Readback {
 	bool valid = false;
 	Job job;
 };
-// Smoothstep over kStrengthRampNs. Retargets from the current value, never from
-// zero, so a slider dragged mid-ramp continues without a jump. Render thread only.
-struct StrengthRamp {
-	float value = 0, from = 0, target = 0;
-	uint64_t started = 0;
-	float sample(float requested, uint64_t now)
-	{
-		if (started) {
-			float t = now >= started ? std::min(1.f, float(now - started) / float(kStrengthRampNs)) : 1.f;
-			value = from + (target - from) * (t * t * (3 - 2 * t));
-		}
-		if (requested != target) {
-			from = value;
-			target = requested;
-			started = now;
-		}
-		return value;
-	}
-};
 enum class SourceState { Ready, Missing, Empty, TooLarge, SourceColor, RenderColor, Unseen };
 
 // One filter instance. Fields up to display_valid are render-thread state; from
@@ -134,8 +114,9 @@ struct Filter {
 	std::shared_ptr<CaptureToken> latest;
 	obs_source_t *last_target = nullptr;
 	uint32_t context_w = 0, context_h = 0, context_gen = 0;
-	std::array<uint8_t, kSceneSamples> scene_samples{};
-	bool have_scene = false;
+	beauti::SceneCut scene_cut;
+	beauti::LiveStats stats; // fed only with BEAUTI_STATS=1
+	uint32_t lagged_at_start = 0;
 	const char *last_continuity_reason = nullptr;
 	// Silent pass-through and readback failures are logged when their reason changes
 	// (render thread), so a tester can see why the image stays unprocessed.
@@ -241,9 +222,9 @@ struct Filter {
 	void compose_active(const RenderContext &ctx, bool new_analysis);
 	void service_readbacks(RenderContext &ctx);
 	void consume_readback(Readback &slot, RenderContext &ctx);
-	bool detect_scene_cut(const std::vector<uint8_t> &pixels, uint32_t w, uint32_t h);
 	void capture_snapshot(const RenderContext &ctx);
-	void present(const RenderContext &ctx);
+	bool present(const RenderContext &ctx);
+	void log_stats() const;
 	void clear_stages();
 	void reset_display();
 	void invalidate_context();
@@ -552,6 +533,8 @@ static void destroy_filter(void *data)
 	f->event.notify_all();
 	if (f->thread.joinable())
 		f->thread.join();
+	if (beauti::stats_enabled() && f->stats.tick_count())
+		f->log_stats();
 	// Snapshots, readback surfaces, effects, and the compositor are released
 	// by their owning handles, which must run inside the graphics context.
 	obs_enter_graphics();
@@ -700,7 +683,7 @@ void Filter::reset_display()
 	active = Job{};
 	display_valid = false;
 	latest.reset();
-	have_scene = false;
+	scene_cut = {};
 }
 // The source is unusable this frame: forget all captured and processed images.
 void Filter::invalidate_context()
@@ -829,8 +812,12 @@ bool Filter::receive_result(const RenderContext &ctx)
 		return false;
 	if (beauti::timing_enabled())
 		beauti::timing_log("result_received_age", r.sequence, double(ctx.now - r.captured_ns) / 1e6);
+	if (beauti::stats_enabled())
+		stats.result(r.status == 0, r.landmarks_valid);
 	if (!continuity.accept(r.sequence, r.captured_ns, ctx.now, r.milliseconds, r.status == 0))
 		return false;
+	if (beauti::stats_enabled())
+		stats.accept(r.milliseconds);
 	active = std::move(ready);
 	return true;
 }
@@ -861,6 +848,7 @@ void Filter::compose_active(const RenderContext &ctx, bool new_analysis)
 	      s.smooth != shown_smooth || s.eyes != shown_eyes || finishing != shown_finishing))
 		return;
 	beauti::TimingSpan span("compose_cpu_submission", active.frame.sequence);
+	const uint64_t compose_start = beauti::stats_enabled() ? os_gettime_ns() : 0;
 	auto *original = gs_texrender_get_texture(snapshots[active.token->slot].render.get());
 	if (active.frame.status == 0 &&
 	    (s.retouch > 0 || s.skin_tone > 0 || s.dodge_burn > 0 || s.smooth > 0 || s.eyes > 0 || finishing.color > 0))
@@ -876,6 +864,8 @@ void Filter::compose_active(const RenderContext &ctx, bool new_analysis)
 	shown_smooth = s.smooth;
 	shown_eyes = s.eyes;
 	shown_finishing = finishing;
+	if (compose_start)
+		stats.composed(double(os_gettime_ns() - compose_start) / 1e6);
 	if (!display_valid)
 		continuity.fail("resource_failure");
 	if (display_valid) {
@@ -940,13 +930,14 @@ void Filter::consume_readback(Readback &slot, RenderContext &ctx)
 	for (uint32_t y = 0; y < h; ++y)
 		memcpy(next.frame.pixels.data() + size_t(y) * w * 4, mapped + size_t(y) * stride, size_t(w) * 4);
 	gs_stagesurface_unmap(slot.surface.get());
-	if (detect_scene_cut(next.frame.pixels, w, h)) {
+	if (scene_cut.observe(next.frame.pixels.data(), w, h)) {
 		if (beauti::timing_enabled())
 			blog(LOG_INFO, "[beauti-continuity] scene_cut");
-		const auto current_scene = scene_samples;
+		if (beauti::stats_enabled())
+			stats.scene_cut();
+		const auto current_scene = scene_cut;
 		reset_display();
-		scene_samples = current_scene;
-		have_scene = true;
+		scene_cut = current_scene;
 		ctx.gen = restart_generation();
 		context_gen = ctx.gen;
 		next.frame.generation = ctx.gen;
@@ -959,34 +950,6 @@ void Filter::consume_readback(Readback &slot, RenderContext &ctx)
 		has_job = true;
 	}
 	event.notify_one();
-}
-// Conservative scene-cut signal on the actual readback. It is not face
-// tracking; subtle cuts still need detector evidence. Updates the stored sample.
-bool Filter::detect_scene_cut(const std::vector<uint8_t> &pixels, uint32_t w, uint32_t h)
-{
-	std::array<uint8_t, kSceneSamples> sample{};
-	unsigned changed = 0;
-	double delta = 0;
-	for (unsigned y = 0; y < kSceneGrid; ++y)
-		for (unsigned x = 0; x < kSceneGrid; ++x) {
-			unsigned d = 0;
-			for (unsigned c = 0; c < 3; ++c) {
-				const unsigned i = (y * kSceneGrid + x) * 3 + c;
-				sample[i] = pixels[(size_t((2 * y + 1) * h / (2 * kSceneGrid)) * w +
-						    (2 * x + 1) * w / (2 * kSceneGrid)) *
-							   4 +
-						   c];
-				const auto diff = unsigned(std::abs(int(sample[i]) - int(scene_samples[i])));
-				delta += diff;
-				d += diff;
-			}
-			if (d > kSceneBlockChange)
-				++changed;
-		}
-	const bool cut = have_scene && delta / kSceneSamples > kSceneMeanChange && changed > kSceneChangedBlocks;
-	scene_samples = sample;
-	have_scene = true;
-	return cut;
 }
 // Render the target into a full-resolution snapshot, scale it down, and start the
 // asynchronous readback that feeds the worker. Rate-limited to the requested cadence.
@@ -1071,7 +1034,8 @@ void Filter::capture_snapshot(const RenderContext &ctx)
 	capture_failing = !captured;
 }
 // Step 5: draw the composed frame, cross-fade in and out, or pass the source through.
-void Filter::present(const RenderContext &ctx)
+// Returns whether the output shows processed pixels.
+bool Filter::present(const RenderContext &ctx)
 {
 	const bool enabled = retouch.load() || skin_tone.load() || dodge_burn.load() || smooth.load() || eyes.load() ||
 			     finish_targets[size_t(beauti::FinishControl::Color)].load();
@@ -1095,7 +1059,7 @@ void Filter::present(const RenderContext &ctx)
 			beauti::timing_log("passthrough", sequence,
 					   last_result ? double(ctx.now - last_result) / 1e6 : 0.0);
 		obs_source_skip_video_filter(source);
-		return;
+		return false;
 	}
 	if (amount < 1 && latest) {
 		auto *e = continuity_effect.get();
@@ -1110,6 +1074,13 @@ void Filter::present(const RenderContext &ctx)
 		gs_enable_framebuffer_srgb(previous);
 	} else
 		draw_encoded(texture, ctx.width, ctx.height, true);
+	return true;
+}
+void Filter::log_stats() const
+{
+	blog(LOG_INFO, "[beauti-stats] " BEAUTI_VERSION " id=%p %s obs_frame_ms=%.1f lagged=%u",
+	     static_cast<const void *>(this), stats.summary().c_str(), double(obs_get_average_frame_time_ns()) / 1e6,
+	     obs_get_lagged_frames() - lagged_at_start);
 }
 void Filter::render()
 {
@@ -1119,10 +1090,21 @@ void Filter::render()
 	// Readbacks first: the worker gets its next frame earlier, and a result published
 	// meanwhile is received in this tick instead of being overwritten by the next one
 	// (one pending result slot).
+	const bool tick_start = !captured_this_tick;
 	service_readbacks(ctx);
 	const bool new_analysis = receive_result(ctx);
 	compose_active(ctx, new_analysis);
-	present(ctx);
+	const bool drawn = present(ctx);
+	if (beauti::stats_enabled() && tick_start) {
+		if (!stats.tick_count())
+			lagged_at_start = obs_get_lagged_frames();
+		const double age = active.token ? double(ctx.now - active.frame.captured_ns) / 1e6 : 0;
+		stats.tick(ctx.now, drawn, age, continuity.good, continuity.reason);
+		if (stats.report_due(ctx.now)) {
+			stats.reported(ctx.now);
+			log_stats();
+		}
+	}
 }
 static void render(void *data, gs_effect_t *) noexcept
 {

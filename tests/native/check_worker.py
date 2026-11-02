@@ -19,14 +19,15 @@ import numpy as np
 
 from beauti_tools.bench.protocol import BACKEND_IDS, REQUEST, pack_request, parse_responses
 
-# (retouch, smooth) requests: bypass, blend only, mask only, both twice, bypass.
-CONTROLS = [(0, 0), (100, 0), (0, 100), (60, 50), (60, 50), (0, 0)]
+# (retouch, smooth) requests: bypass, blend only, mask only, both, bypass. The face region
+# settles on a repeated frame within a few analyses, so "both" repeats until it has.
+CONTROLS = [(0, 0), (100, 0), (0, 100), (60, 50), (60, 50), (60, 50), (60, 50), (0, 0)]
 # ORT profile prefixes (model file stems) placed on the device by src/backends/backend.cpp.
 TENSORRT_MODELS = ('skin_retouching', 'skin_segmenter')
 
 
 def run(bundle, fixture, width, height, backend, output, quality='fast', profile=False):
-    """Run the six-request protocol check against the bundle; writes and returns the report."""
+    """Run the protocol check against the bundle; writes and returns the report."""
     bundle, out = bundle.resolve(), output.resolve()
     out.mkdir(parents=True, exist_ok=True)
     original = fixture.read_bytes()
@@ -93,9 +94,9 @@ def run(bundle, fixture, width, height, backend, output, quality='fast', profile
             (out / f'frame-{i}.mask.f32').write_bytes(response.mask)
         payloads.append((response.box, response.blend, response.mask))
         frames.append(record)
-    # Bypass frames carry no payload; identical requests produce identical maps.
-    assert payloads[0] == ((0, 0, 0, 0), b'', b'') and payloads[5] == ((0, 0, 0, 0), b'', b''), 'bypass payload'
-    assert payloads[3] == payloads[4], 'Repeated request produced different maps'
+    # Bypass frames carry no payload; a settled region gives identical maps for identical requests.
+    assert payloads[0] == ((0, 0, 0, 0), b'', b'') and payloads[-1] == ((0, 0, 0, 0), b'', b''), 'bypass payload'
+    assert payloads[-3] == payloads[-2], 'Repeated request produced different maps'
     invalid = subprocess.run(
         command,
         input=REQUEST.pack(0, 1, 1, 0, 0, 1),  # wrong magic, no pixels

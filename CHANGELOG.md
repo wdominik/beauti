@@ -6,6 +6,16 @@ All notable changes to Beauti are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The filter now follows a face through its landmarks instead of searching every frame. Faces
+  close to the camera and turned faces stay processed, a failure of up to 300 ms is bridged, and
+  the face region and skin mask flicker less on a still face. Analysis takes about 2 ms longer.
+- Another face takes over only when it stays clearly larger.
+
+### Added
+- `BEAUTI_STATS=1` writes a session summary to the OBS log, with frame age, processed
+  frames, and face losses by reason.
+
 ### Fixed
 - Removing a filter or quitting OBS could hang in rare cases.
 - The target frame rate is now kept when it is not a divisor of the canvas rate; 25 FPS

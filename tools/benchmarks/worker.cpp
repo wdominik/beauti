@@ -63,12 +63,15 @@ int beauti_main(int argc, char **argv)
 	try {
 		std::string models, cache = beauti::utf8_string(beauti::cache_root() / "benchmark");
 		uint32_t backend = beauti::default_backend(), quality = 0, eyes = 0;
+		double frame_ms = 0;
 		for (int i = 1; i < argc; ++i) {
 			std::string a = argv[i];
 			if (a == "--models" && i + 1 < argc)
 				models = argv[++i];
 			else if (a == "--cache" && i + 1 < argc)
 				cache = argv[++i];
+			else if (a == "--frame-ms" && i + 1 < argc) // deterministic capture times for clips
+				frame_ms = std::stod(argv[++i]);
 			else if (a == "--quality" && i + 1 < argc)
 				quality = std::string(argv[++i]) == "full" ? 1 : 0;
 			else if (a == "--eyes" &&
@@ -106,6 +109,7 @@ int beauti_main(int argc, char **argv)
 			f.smooth = request[4];
 			f.eyes = eyes;
 			f.sequence = request[5];
+			f.captured_ns = uint64_t(frame_ms * 1e6 * f.sequence);
 			f.pixels.resize(size_t(f.width) * f.height * 4);
 			read_exact(f.pixels.data(), f.pixels.size());
 			beauti::Maps maps;

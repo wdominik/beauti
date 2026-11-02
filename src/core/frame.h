@@ -13,7 +13,8 @@ struct Frame {
 	uint32_t eyes = 0; // Request optional eye maps; the engine clears it when the eye models are unavailable.
 	uint32_t backend = 0, used_backend = 0;
 	uint64_t captured_ns = 0;
-	std::string warning; // Nonfatal engine message, such as a disabled optional stage.
+	bool landmarks_valid = true; // False when the analysis bridged a failure with the last face region.
+	std::string warning;         // Nonfatal engine message, such as a disabled optional stage.
 	float milliseconds = 0, detect_ms = 0, infer_ms = 0, post_ms = 0;
 	int box[4] = {0, 0, 0, 0};
 	std::vector<uint8_t> pixels;

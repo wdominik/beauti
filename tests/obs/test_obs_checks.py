@@ -12,6 +12,7 @@ import sys
 
 import check_configurable_finishing
 import check_presets
+import live_stats
 import pytest
 
 import check_continuity
@@ -50,6 +51,20 @@ def run_fixture(harness, bundle, fixture, obs_runtime, report, seconds, slider_m
     with report.with_suffix('.log').open('w') as log:
         subprocess.run(command, env=env, stdout=log, stderr=log, check=True, timeout=120)
     return report
+
+
+def test_live_statistics_describe_the_run(harness, bundle, fixture_720p, obs_runtime, tmp_path, monkeypatch):
+    monkeypatch.setenv('BEAUTI_STATS', '1')
+    report = run_fixture(harness, bundle, fixture_720p, obs_runtime, tmp_path / 'stats.json', 14, 0)
+    filters = live_stats.parse(report.with_suffix('.log').read_text())
+    assert len(filters) == 1
+    stats = next(iter(filters.values()))
+    assert stats['seconds'] > 9
+    assert stats['processed'] > 0 and stats['accepted'] > 0
+    assert stats['processed'] + stats['passthrough'] == stats['ticks']
+    assert 0 < stats['age_p50'] <= stats['age_p95'] <= stats['age_max'] + 1
+    assert stats['analysis_p50'] > 0
+    assert stats['no_face'] == 0 and stats['bridged'] == 0
 
 
 def test_gpu_stages_match_the_cpu_reference(gpu_check, bundle, fixture_720p, obs_runtime, tmp_path):

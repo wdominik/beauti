@@ -32,3 +32,4 @@ change that implements it. The record states the measurements it rests on.
 | [0020](0020-look-presets.md) | Look presets Low/Medium/High/Very High and a Manual mode that starts from the last preset | 2026-10-27 | Accepted for development |
 | [0021](0021-mediapipe-detection-and-segmentation.md) | MediaPipe BlazeFace and Multiclass Segmentation for detection and the skin mask | 2026-10-27 | Accepted; segmenter placement outside macOS superseded by 0022 |
 | [0022](0022-tensorrt-segmenter-and-auxiliary-threads.md) | The segmenter runs on TensorRT RTX; auxiliary CPU threads follow the cores | 2026-10-28 | Accepted for development |
+| [0023](0023-landmark-face-tracking.md) | Follow the face through its landmarks, with a short bridge |

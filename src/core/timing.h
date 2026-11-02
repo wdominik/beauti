@@ -14,6 +14,15 @@ inline bool timing_enabled()
 	}();
 	return enabled;
 }
+// Opt-in session summary in the OBS log (src/core/live_stats.h), without the per-stage output.
+inline bool stats_enabled()
+{
+	static const bool enabled = [] {
+		const char *v = std::getenv("BEAUTI_STATS");
+		return v && v[0] == '1' && v[1] == '\0';
+	}();
+	return enabled;
+}
 using TimingClock = std::chrono::steady_clock;
 inline void timing_log(const char *stage, uint32_t frame, double ms)
 {
