@@ -86,7 +86,8 @@ analysis uses ([decision 0023](decisions/0023-landmark-face-tracking.md)): FaceM
 CPU follows an established face from the landmarks of the previous analysis.
 MediaPipe BlazeFace (full range, 192 px letterbox) finds a face when none is followed and
 checks about once per second for a clearly larger one. The analysis crop is a square of 1.75
-landmark extents. The retouch U-Net then runs on the selected device while a second thread
+landmark extents; it may reach beyond the image, whose edge pixels then repeat, so that a face at
+the border or close to the camera reaches the models undistorted. The retouch U-Net then runs on the selected device while a second thread
 runs the MediaPipe Multiclass segmenter (256 px) and, overlapping it, Iris for Eyes on the CPU.
 The mask is the segmenter's face-skin class with the FaceMesh eye, brow, and lip contours cut
 out (grown by 1.5 mask pixels), so no feature is ever treated as skin. Both maps are returned

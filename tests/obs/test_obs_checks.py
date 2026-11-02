@@ -13,6 +13,7 @@ import sys
 
 import check_configurable_finishing
 import check_presets
+import cv2
 import live_stats
 import numpy as np
 import pytest
@@ -101,15 +102,43 @@ def test_effects_at_zero_stop_the_analysis_and_release_the_models(
 
 
 def test_gpu_stages_match_the_cpu_reference(gpu_check, bundle, fixture_720p, obs_runtime, tmp_path):
+    # The reference works on a crop inside the image, so the face must not reach its border.
+    image = np.fromfile(fixture_720p, np.uint8).reshape(720, 1280, 4)
+    matrix = np.array([[0.7, 0, 192], [0, 0.7, 108]], np.float32)
+    fixture = tmp_path / 'inside.rgba'
+    cv2.warpAffine(image, matrix, (1280, 720), flags=cv2.INTER_AREA, borderMode=cv2.BORDER_REPLICATE).tofile(fixture)
     out = tmp_path / 'pixels'
     out.mkdir()
-    command = [str(gpu_check), str(bundle), str(fixture_720p), str(out), '1280', '720']
+    command = [str(gpu_check), str(bundle), str(fixture), str(out), '1280', '720']
     with (tmp_path / 'gpu-check.log').open('w') as log:
         subprocess.run(command, env=runner_environment(obs_runtime), stdout=log, stderr=log, check=True, timeout=900)
+    left, top, right, bottom = json.loads((out / 'maps.json').read_text())['box']
+    assert left >= 0 and top >= 0 and right <= 1280 and bottom <= 720, 'The face must stay inside the image here'
     report = check_finishing_pixels.run(out)
     assert report['passed']
     assert report['combinations'] == 81
     assert check_configurable_finishing.run(out)['passed']
+
+
+def test_a_face_reaching_beyond_the_image_is_processed_up_to_the_border(
+    gpu_check, bundle, fixture_720p, obs_runtime, tmp_path
+):
+    # Enlarged, so that the analysis region reaches beyond the image.
+    image = np.fromfile(fixture_720p, np.uint8).reshape(720, 1280, 4)
+    matrix = cv2.getRotationMatrix2D((640, 360), 0, 1.6)
+    fixture = tmp_path / 'close.rgba'
+    cv2.warpAffine(image, matrix, (1280, 720), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE).tofile(fixture)
+    out = tmp_path / 'pixels'
+    out.mkdir()
+    command = [str(gpu_check), str(bundle), str(fixture), str(out), '1280', '720']
+    with (tmp_path / 'gpu-check.log').open('w') as log:
+        subprocess.run(command, env=runner_environment(obs_runtime), stdout=log, stderr=log, check=True, timeout=900)
+    left, top, right, bottom = json.loads((out / 'maps.json').read_text())['box']
+    assert right - left == bottom - top
+    assert top < 0 or bottom > 720 or left < 0 or right > 1280
+    before = np.fromfile(out / 'original.rgba', np.uint8).reshape(720, 1280, 4)
+    after = np.fromfile(out / 'r100-t100-d100-s100.rgba', np.uint8).reshape(720, 1280, 4)
+    assert np.mean(np.abs(after[..., :3].astype(int) - before[..., :3]) > 2) > 0.05
 
 
 def test_presets_preserve_manual_values_and_hardware(harness, bundle, fixture_720p, obs_runtime, tmp_path):

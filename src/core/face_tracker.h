@@ -47,6 +47,8 @@ public:
 	static constexpr float roi_scale = 1.5f;
 	// The detector box measures 0.94 landmark extents, so its 1.86x analysis crop is 1.75 extents.
 	static constexpr float box_scale = 1.75f;
+	// Bounds the GPU cost of a face that fills the image, as a share of the image's longer side.
+	static constexpr float max_box_share = 1.5f;
 	static constexpr int min_face_side = 32;
 	// The region follows once the center or size moved by this share of the extent, or the
 	// rotation by this many radians (about one degree).
@@ -92,11 +94,15 @@ public:
 			moving = false;
 			return true;
 		}
-		const float half = side * box_scale * .5f;
-		const FaceBox box{std::max(0, int(center.x - half)), std::max(0, int(center.y - half)),
-				  std::min(int(frame_w), int(center.x + half)),
-				  std::min(int(frame_h), int(center.y + half))};
-		if (box.right - box.left < min_face_side || box.bottom - box.top < min_face_side)
+		// The region stays square and may reach beyond the image, whose edge then repeats. A
+		// crop cut at the image border would reach the models distorted.
+		const float limit = float(std::max(frame_w, frame_h)) * max_box_share;
+		const float half = std::min(side * box_scale, limit) * .5f;
+		const int left = int(std::floor(center.x - half)), top = int(std::floor(center.y - half));
+		const int edge = int(half * 2);
+		const FaceBox box{left, top, left + edge, top + edge};
+		if (std::min(int(frame_w), box.right) - std::max(0, box.left) < min_face_side ||
+		    std::min(int(frame_h), box.bottom) - std::max(0, box.top) < min_face_side)
 			return false;
 		current = box;
 		moving = active && std::max({std::abs(center.x - held_center.x), std::abs(center.y - held_center.y),

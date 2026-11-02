@@ -21,6 +21,11 @@ without using it is taken from them.
   and the Micro Dodge & Burn statistics, which hold squares, stay in 32-bit floats. Pixels change
   by at most a few 8-bit steps in rare cases, which the reference checks accept.
 
+- The finishing fields are at most 1536 px on their longer side. A larger face region is computed
+  at that size and sampled back, because its cost otherwise grows faster than its area. At 4K with a
+  face close to the camera the OBS frame time falls from about 53 to about 20 ms, and the output stays
+  practically the same (99% of the channel values within 2 of 255).
+
 ## Rejected after measuring
 
 - Persistent threads for the mask: starting them takes well under 0.1 ms.

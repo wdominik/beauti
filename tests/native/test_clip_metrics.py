@@ -49,6 +49,14 @@ def test_a_moving_box_keeps_the_map_in_frame_coordinates():
     assert metrics.summary()['blend_step']['median'] == pytest.approx(0.25)
 
 
+def test_a_box_beyond_the_frame_is_cut_at_its_border():
+    metrics = clip_metrics.ClipMetrics(640, 360)
+    box = (-50, -50, 300, 300)
+    metrics.add(0, box, *maps(), frame(), 10)
+    metrics.add(0, box, *maps(), frame(), 10)
+    assert metrics.summary()['mask_flip_percent']['max'] == 0
+
+
 def test_misses_and_empty_masks_are_counted_as_runs():
     metrics = clip_metrics.ClipMetrics(640, 360)
     miss = (1, (0, 0, 0, 0), None, None, frame(), 5)

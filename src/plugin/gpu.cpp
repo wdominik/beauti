@@ -14,6 +14,10 @@ namespace {
 constexpr float kDefaultRadiusFraction = .018f;
 constexpr int kDefaultRadiusMin = 3;
 constexpr int kBlurPasses = 3; // three box passes approximate a Gaussian
+// Longer side of the finishing fields. A larger face region is computed at this size and sampled
+// back: its cost otherwise grows faster than its area, since blur radii grow with it, and at
+// this size skin detail is coarse enough that the result stays practically the same.
+constexpr float kMaxFieldSide = 1536.f;
 // Skin Tone works on a reduced chroma field and a 64x64 sample of the face.
 constexpr int kToneFieldLongSidePerformance = 256, kToneFieldLongSideHighQuality = 384;
 constexpr float kToneRadiusFraction = .025f, kToneRadiusMin = 2.f, kToneRadiusMax = 64.f;
@@ -254,6 +258,9 @@ void SkinGPU::set_geometry(const beauti::Frame &f, uint32_t width, uint32_t heig
 	vec2_set(&grid.pixels, roi.z * float(width), roi.w * float(height));
 	grid.w = std::max(2u, uint32_t(std::round(grid.pixels.x)));
 	grid.h = std::max(2u, uint32_t(std::round(grid.pixels.y)));
+	const float field_scale = std::min(1.f, kMaxFieldSide / float(std::max(grid.w, grid.h)));
+	grid.w = std::max(2u, uint32_t(std::round(float(grid.w) * field_scale)));
+	grid.h = std::max(2u, uint32_t(std::round(float(grid.h) * field_scale)));
 	vec2_set(&grid.size, float(grid.w), float(grid.h));
 	memcpy(roi_value, &roi, sizeof(roi_value));
 	memcpy(pixel_value, &grid.pixels, sizeof(pixel_value));
@@ -304,7 +311,10 @@ gs_texture_t *SkinGPU::compose(gs_texture_t *original, const beauti::Frame &f, c
 	const uint32_t width = gs_texture_get_width(original), height = gs_texture_get_height(original);
 	FaceGrid grid;
 	set_geometry(f, width, height, grid);
-	eye_strength = maps.eye_size ? std::clamp(eye_amount / 100.f, 0.f, 1.f) : 0.f;
+	// A frame without eye analysis (a bridged one) fades out on the last eye map. A frame whose
+	// analysis found no open eye has no map to show.
+	const bool eye_map = maps.eye_size || (!f.eyes && eye_size);
+	eye_strength = eye_map ? std::clamp(eye_amount / 100.f, 0.f, 1.f) : 0.f;
 	strength_value[0] = retouch / 100.f;
 	strength_value[1] = skin_tone / 100.f;
 	strength_value[2] = dodge_burn / 100.f;

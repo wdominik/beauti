@@ -24,6 +24,8 @@ the crop changes the model outputs, which shows as flicker on a still face.
 - After that the analysis reports no face and the continuity policy fades to the source. A
   landmark failure no longer empties the mask, so every exit runs through the same fade.
 - A region that moved by at most 1% of the extent and about one degree is kept.
+- The region stays square and may reach beyond the image, whose edge pixels repeat. Cutting it at
+  the border would distort the face for the models and fade the effect at the image edge.
 - A scene cut, another image size, or a pause of more than two seconds forgets the face.
 
 ## Consequences

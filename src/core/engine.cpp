@@ -205,14 +205,15 @@ struct Axis {
 	int a, b;
 	float f;
 };
-// Half-pixel-centered mapping (OpenCV INTER_LINEAR convention) with clamped edges.
-std::vector<Axis> axis(int from, int to)
+// Half-pixel-centered mapping (OpenCV INTER_LINEAR convention) of a crop that starts at
+// origin and may reach beyond the image, whose edge pixels then repeat.
+std::vector<Axis> axis(int origin, int from, int to, int image)
 {
 	std::vector<Axis> a(to);
 	for (int x = 0; x < to; ++x) {
 		float p = (float(x) + .5f) * float(from) / float(to) - .5f;
 		int i = int(std::floor(p));
-		a[x] = {std::clamp(i, 0, from - 1), std::clamp(i + 1, 0, from - 1), p - float(i)};
+		a[x] = {std::clamp(origin + i, 0, image - 1), std::clamp(origin + i + 1, 0, image - 1), p - float(i)};
 	}
 	return a;
 }
@@ -223,7 +224,8 @@ struct InputBuffer {
 	std::vector<float> values;
 	std::vector<Axis> columns, rows;
 	std::array<float, 256> normalized{};
-	int source_w = 0, source_h = 0, width = 0, height = 0, padded_w = 0, padded_h = 0;
+	int source_l = 0, source_t = 0, source_w = 0, source_h = 0, width = 0, height = 0, padded_w = 0, padded_h = 0;
+	uint32_t image_w = 0, image_h = 0;
 	InputBuffer()
 	{
 		for (int v = 0; v < 256; ++v)
@@ -236,13 +238,17 @@ struct InputBuffer {
 	}
 	void prepare(const Frame &f, int l, int t, int w, int h, int ow, int oh, int pw, int ph)
 	{
-		if (w != source_w || ow != width) {
-			columns = axis(w, ow);
+		if (l != source_l || w != source_w || ow != width || f.width != image_w) {
+			columns = axis(l, w, ow, int(f.width));
+			source_l = l;
 			source_w = w;
+			image_w = f.width;
 		}
-		if (h != source_h || oh != height) {
-			rows = axis(h, oh);
+		if (t != source_t || h != source_h || oh != height || f.height != image_h) {
+			rows = axis(t, h, oh, int(f.height));
+			source_t = t;
 			source_h = h;
+			image_h = f.height;
 		}
 		// Padding (the detector's letterbox) must be cleared when dimensions change.
 		if (ow != width || oh != height || pw != padded_w || ph != padded_h) {
@@ -255,8 +261,8 @@ struct InputBuffer {
 		float *planes[] = {values.data(), values.data() + size_t(pw) * ph, values.data() + size_t(pw) * ph * 2};
 		for (int y = 0; y < oh; ++y) {
 			const auto Y = rows[y];
-			const auto *top = f.pixels.data() + (size_t(t + Y.a) * f.width + l) * 4;
-			const auto *bottom = f.pixels.data() + (size_t(t + Y.b) * f.width + l) * 4;
+			const auto *top = f.pixels.data() + size_t(Y.a) * f.width * 4;
+			const auto *bottom = f.pixels.data() + size_t(Y.b) * f.width * 4;
 			for (int x = 0; x < ow; ++x) {
 				const auto X = columns[x];
 				const auto *a = top + X.a * 4, *b = top + X.b * 4, *d = bottom + X.a * 4,
@@ -705,6 +711,8 @@ struct Engine::Impl {
 			fresh = run_models(f, maps, false, fresh, now);
 		}
 		f.landmarks_valid = fresh;
+		if (!fresh)
+			f.eyes = 0; // No eye map without landmarks: the compositor fades out the last one.
 		if (fresh && tracker.detector_due(now))
 			check_for_larger_face(f, now);
 		return true;

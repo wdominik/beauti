@@ -43,15 +43,26 @@ TEST_CASE("Landmarks give the crop of the landmark model and the analysis box", 
 	CHECK(box.bottom == 535);
 }
 
-TEST_CASE("The analysis box stays inside the image, the crop of the landmark model does not", "[face-tracker]")
+TEST_CASE("A region stays square when it reaches beyond the image", "[face-tracker]")
 {
 	FaceTracker tracker;
 	tracker.begin(ms, kW, kH, 1);
 	const auto points = face(640, 360, 700);
 	REQUIRE(tracker.update(ms, points, points[0], points[1]));
-	CHECK(tracker.box().top == 0);
-	CHECK(tracker.box().bottom == int(kH));
+	const auto box = tracker.box();
+	CHECK(box.top < 0);
+	CHECK(box.bottom > int(kH));
+	CHECK(box.right - box.left == box.bottom - box.top);
 	CHECK(tracker.region().side == Catch::Approx(1050));
+}
+
+TEST_CASE("The region of a face larger than the image is bounded", "[face-tracker]")
+{
+	FaceTracker tracker;
+	tracker.begin(ms, kW, kH, 1);
+	const auto points = face(640, 360, 3000);
+	REQUIRE(tracker.update(ms, points, points[0], points[1]));
+	CHECK(tracker.box().right - tracker.box().left == int(float(kW) * FaceTracker::max_box_share));
 }
 
 TEST_CASE("Rotation of the crop comes from the eye corners", "[face-tracker]")

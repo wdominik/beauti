@@ -20,6 +20,7 @@ steps to produce one, so that the gaps are explicit.
 | User-installed NVIDIA runtime | Follow the [installation guide](INSTALL.md) on a real machine: without the files, with them after a restart, with a wrong version, and after an update | Maintainers |
 | Camera, streaming, and recording acceptance on both platforms | Pending; see [PERFORMANCE-ACCEPTANCE.md](PERFORMANCE-ACCEPTANCE.md) | Project owner |
 | CI green on the release commit | `.github/workflows/ci.yml`; the first run of `release.yml` is unverified | Maintainers |
+| Skin tones | Check a range of skin tones on images that stay outside the repository: lightness and hue of the skin are kept, the face and mask are found | Project owner |
 | Native-speaker review of the locale catalogs (`data/locale/`) | Pending for all languages except English and German | Project owner |
 
 ## Steps

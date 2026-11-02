@@ -26,13 +26,14 @@ def _percentiles(values):
 
 
 def _paste(values, box, scale, grid):
-    """Resize a square map into its box on the coarse grid; outside the box stays zero."""
+    """Resize a square map into its box on the coarse grid; a box may reach beyond the grid."""
     left, top, right, bottom = (round(v * scale) for v in box)
-    right = min(max(right, left + 1), grid[1])
-    bottom = min(max(bottom, top + 1), grid[0])
+    right, bottom = max(right, left + 1), max(bottom, top + 1)
+    resized = cv2.resize(values, (right - left, bottom - top), interpolation=cv2.INTER_LINEAR)
     out = np.zeros(grid, dtype=np.float32)
-    if left < grid[1] and top < grid[0]:
-        out[top:bottom, left:right] = cv2.resize(values, (right - left, bottom - top), interpolation=cv2.INTER_LINEAR)
+    x0, y0, x1, y1 = max(left, 0), max(top, 0), min(right, grid[1]), min(bottom, grid[0])
+    if x0 < x1 and y0 < y1:
+        out[y0:y1, x0:x1] = resized[y0 - top : y1 - top, x0 - left : x1 - left]
     return out
 
 
