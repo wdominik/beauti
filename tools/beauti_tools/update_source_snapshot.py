@@ -5,7 +5,7 @@ import hashlib
 import json
 
 from .paths import ROOT
-from .source_files import source_files
+from .source_files import snapshot_files
 
 
 def main():
@@ -13,11 +13,9 @@ def main():
     record = json.loads(path.read_text())
     record['source_snapshot'] = {
         'algorithm': 'sha256',
-        'scope': 'Versionable source files except this self-referential register.',
+        'scope': 'Versionable source files except this register and the dependency files.',
         'files': {
-            p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in source_files(ROOT)
-            if p != path
+            p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in snapshot_files(ROOT)
         },
     }
     path.write_text(json.dumps(record, indent=2) + '\n', encoding='utf-8', newline='\n')

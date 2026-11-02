@@ -1,27 +1,27 @@
 # Release process
 
-Beauti has no public release yet. This page lists what a release requires and the
-steps to produce one, so that the gaps are explicit.
+This page lists what a release requires and the steps to produce one. Gates that are still open
+stay listed here, so that the gaps are explicit; the release notes name what a release leaves open.
 
 ## Release gates
 
-| Gate | State | Owner |
-| --- | --- | --- |
-| macOS signing: Developer ID, notarization, stapling | Ad-hoc signing only | Project owner |
-| Windows signing: Authenticode | Unsigned | Project owner |
-| OBS compatibility | Built and checked against 33.0.0 on both platforms. Live camera and sustained encoding acceptance remain pending | Maintainers |
-| MediaPipe models on Windows | Built and tested; camera review remains pending | Maintainers |
-| Core AI cache after a host update | Core AI fails with `nilError` once the host's code signature changes; the adapter clears the process cache and loads again ([Apple acceleration](APPLE-ACCELERATION.md#adapter)). Reproduced only by re-signing a test binary: update OBS with Beauti installed and confirm the filter starts; report the Core AI defect to Apple | Maintainers |
-| 4K at 60 FPS | The Automatic frame rate bounds the analysis rate ([decision 0024](decisions/0024-readback-timing-and-automatic-rate.md)); confirm it on a camera and with an encoder | Maintainers |
-| Eyes on the CPU device | Without an accelerator, Eyes takes effect 0.8–1.3 s after it is enabled and fails the one-second transition check; accept or shorten | Maintainers |
-| Model tooling on a final TensorFlow | Model preparation uses TensorFlow 2.22.0rc0 (no 2.21 build for Python 3.14); switch to the 2.22 release and confirm identical conversions | Maintainers |
-| TensorRT RTX EP compatibility | ORT 1.31 is outside the EP's published matrix (1.25 to 1.30); locally validated, re-check on every ORT or EP update | Maintainers |
-| Windows default on machines without NVIDIA or with an old driver | Hidden-device fallback passes; real missing/old-driver machines remain untested | Maintainers |
-| User-installed NVIDIA runtime | Follow the [installation guide](INSTALL.md) on a real machine: without the files, with them after a restart, with a wrong version, and after an update | Maintainers |
-| Camera, streaming, and recording acceptance on both platforms | Pending; see [PERFORMANCE-ACCEPTANCE.md](PERFORMANCE-ACCEPTANCE.md) | Project owner |
-| CI green on the release commit | `.github/workflows/ci.yml`; the first run of `release.yml` is unverified | Maintainers |
-| Skin tones | Check a range of skin tones on images that stay outside the repository: lightness and hue of the skin are kept, the face and mask are found | Project owner |
-| Native-speaker review of the locale catalogs (`data/locale/`) | Pending for all languages except English and German | Project owner |
+| Gate | State |
+| --- | --- |
+| macOS signing: Developer ID, notarization, stapling | Ad-hoc signing only |
+| Windows signing: Authenticode | Unsigned |
+| OBS compatibility | Built and checked against 33.0.0 on both platforms. Live camera and sustained encoding acceptance remain pending |
+| MediaPipe models on Windows | Built and tested; camera review remains pending |
+| Core AI cache after a host update | Core AI fails with `nilError` once the host's code signature changes; the adapter clears the process cache and loads again ([Apple acceleration](APPLE-ACCELERATION.md#adapter)). Reproduced only by re-signing a test binary: update OBS with Beauti installed and confirm the filter starts; report the Core AI defect to Apple |
+| 4K at 60 FPS | The Automatic frame rate bounds the analysis rate ([decisions](DECISIONS.md#timing)); confirm it on a camera and with an encoder |
+| Eyes on the CPU device | Without an accelerator, Eyes takes effect 0.8–1.3 s after it is enabled and fails the one-second transition check; accept or shorten |
+| Model tooling on a final TensorFlow | Model preparation uses TensorFlow 2.22.0rc0 (no 2.21 build for Python 3.14); switch to the 2.22 release and confirm identical conversions |
+| TensorRT RTX EP compatibility | ORT 1.31 is outside the EP's published matrix (1.25 to 1.30); locally validated, re-check on every ORT or EP update |
+| Windows default on machines without NVIDIA or with an old driver | Hidden-device fallback passes; real missing/old-driver machines remain untested |
+| User-installed NVIDIA runtime | Follow the [installation guide](INSTALL.md) on a real machine: without the files, with them after a restart, with a wrong version, and after an update |
+| Camera, streaming, and recording acceptance on both platforms | Pending; see [PERFORMANCE-ACCEPTANCE.md](PERFORMANCE-ACCEPTANCE.md) |
+| CI green on the release commit | `.github/workflows/ci.yml` and `release.yml` |
+| Skin tones | Check a range of skin tones on images that stay outside the repository: lightness and hue of the skin are kept, the face and mask are found |
+| Native-speaker review of the locale catalogs (`data/locale/`) | Pending for all languages except English and German |
 
 ## Steps
 
@@ -53,7 +53,7 @@ release, which a person reads and publishes. Nothing is released by a push alone
 8. Download a package from the draft, install it by the
    [installation guide](INSTALL.md), then publish the draft.
 
-Signing is not part of the workflow yet. When it is added, sign Windows native binaries
+Signing is not part of the workflow. When it is added, sign Windows native binaries
 before recording the final payload inventory, because signing changes their hashes. On
 macOS, record the resource inventory before the bundle signature, then sign, notarize,
 and staple. Verify the final signed bundle with the audit scripts, and do not repair a
@@ -81,5 +81,5 @@ only fixes; minor releases may change defaults or add controls. From 1.0, a majo
 release changes saved-settings compatibility (the keys in the settings table in
 [ARCHITECTURE.md](ARCHITECTURE.md) and the preset IDs). Before 1.0 saved settings
 are not migrated; see [Presets](PRESETS.md#saved-settings-before-10). Effect
-defaults are the default preset ([decision 0020](decisions/0020-look-presets.md));
-processing defaults follow [decision 0008](decisions/0008-control-defaults.md).
+defaults are the default preset ([decisions](DECISIONS.md#controls-and-presets));
+processing defaults follow [decisions](DECISIONS.md#controls-and-presets).

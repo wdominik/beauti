@@ -3,7 +3,7 @@
 The **Preset** menu offers Low, Medium, High, Very High, and Manual. New filters
 start at Medium. The preset selector and the processing controls are always
 visible; the effect sections appear only in Manual. The decision is
-[0020](decisions/0020-look-presets.md).
+[decisions](DECISIONS.md#controls-and-presets).
 
 ## Catalog
 

@@ -124,10 +124,9 @@ NVIDIA files are missing. An explicitly
 selected unavailable accelerator reports an error. Backend setting IDs 3 and 4
 remain unchanged. TensorRT RTX runs the retouch model and the skin segmenter; face
 detection and the landmarks run on the CPU. See
-[decision 0017](decisions/0017-tensorrt-rtx.md) for the startup cache and validation
-limits, [decision 0021](decisions/0021-mediapipe-detection-and-segmentation.md)
-for the MediaPipe models, and [decision 0022](decisions/0022-tensorrt-segmenter-and-auxiliary-threads.md)
-for their placement.
+[TensorRT RTX](DECISIONS.md#nvidia-tensorrt-rtx) for the startup cache and validation
+limits, and [models and their placement](DECISIONS.md#models-and-their-placement)
+for the MediaPipe models and their placement.
 
 These commands stage development bundles. Run the face, graphics, continuity,
 and selection checks in [TESTING.md](TESTING.md); the smoke checks above only
@@ -148,7 +147,7 @@ uv run beauti-build --platform windows --build-only --obs-sdk .cache/windows/sdk
 Default build directories are `build/windows-cpu` and `build/windows-tensorrt`;
 default staged bundles are `dist/cpu/beauti` and `dist/tensorrt/beauti`. The TensorRT RTX
 bundle is the Windows development package and also serves machines without an NVIDIA
-GPU (decision 0015); the CPU-only build exercises the code paths without TensorRT in
+GPU (see [decisions](DECISIONS.md#processing-device)); the CPU-only build exercises the code paths without TensorRT in
 CI and for tests. The Windows
 CMake presets use the same build directories. The Python orchestrator selects
 `windows-cpu` or `windows` instead of maintaining separate generator, architecture,

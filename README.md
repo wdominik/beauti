@@ -30,8 +30,7 @@ Quality, Apple Acceleration); see [demo images](docs/images/README.md).
 
 ## Status
 
-Beauti 0.10.0 is the first public version, for macOS on Apple silicon and Windows x64.
-See the [changelog](CHANGELOG.md).
+Beauti 0.11.0 is for macOS on Apple silicon and Windows x64. See the [changelog](CHANGELOG.md).
 
 ## Requirements
 
@@ -167,7 +166,7 @@ tests on a clean checkout.
 - [Build instructions](docs/BUILD.md)
 - [Source layout, formatting, and contributing](CONTRIBUTING.md)
 - [Architecture](docs/ARCHITECTURE.md), the [finishing algorithms](docs/FINISHING-OBS.md), and the
-  [architecture decisions](docs/decisions/README.md)
+  [decisions](docs/DECISIONS.md)
 - [Tests](docs/TESTING.md) and the [output continuity contract](docs/OUTPUT-CONTINUITY.md)
 - [Performance and image-quality acceptance](docs/PERFORMANCE-ACCEPTANCE.md)
 - [Apple acceleration (Core AI)](docs/APPLE-ACCELERATION.md)

@@ -292,8 +292,7 @@ ModelPlan model_plan(uint32_t backend, uint32_t quality)
 		p.skin = "coreai/skin-segmenter.aimodel";
 		return p;
 	}
-	// With TensorRT RTX the segmenter runs next to the retouch model; on the CPU it bounded
-	// the analysis at about 13 FPS (docs/decisions/0022).
+	// With TensorRT RTX the segmenter runs next to the retouch model (docs/DECISIONS.md).
 	p.skin_backend = backend;
 	p.skin = "native/skin_segmenter.onnx";
 	const std::string variant = backend == TensorRT ? "fp16" : "optimized";

@@ -304,9 +304,8 @@ with OpenCV before applying the existing independent finishing checks.
 The GPU runner also compares seven cached/uncached map scenarios byte for byte:
 strength changes, replacement masks, raw/prepared format changes, dimension
 changes, source changes, and alpha. A zero map revision disables caching for
-reference renders. A selected quality now applies to the entire 81-control
-matrix as well as model dimensions. Historical reports made before this harness
-change retain their original scope and have not been relabeled.
+reference renders. A selected quality applies to the entire 81-control matrix as well as model
+dimensions.
 
 ## OBS fixture runner
 

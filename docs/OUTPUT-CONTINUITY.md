@@ -1,9 +1,7 @@
 # Output continuity contract
 
-Status: implemented in the shared development source, with automated policy and
-Windows and macOS integration tests. This contract
-applies equally to CPU, NVIDIA TensorRT RTX, and Apple Core AI, in both quality modes.
-No GPU-model-specific exceptions. No release is authorized by this document.
+This contract applies equally to CPU, NVIDIA TensorRT RTX, and Apple Core AI, in both quality
+modes, with no GPU-model-specific exceptions.
 
 ## Primary requirement
 
@@ -82,9 +80,8 @@ zero endpoints, then explicit all-zero switches to live bypass.
 Changing the requested analysis frequency recomputes the budget from the original
 capture/completion timestamps, never from the current render tick. This permits
 intentional 1 Hz analysis without diagnosing normal waiting as a stall. It does
-not resurrect an already expired state or reset the absolute age cap. The fixed
-150 ms first-miss prototype was rejected after the CPU fixture showed roughly
-800 ms analysis: its next result could not arrive within that grace period.
+not resurrect an already expired state or reset the absolute age cap. A fixed 150 ms
+grace after a miss would not work: on a slow device the next result cannot arrive in time.
 
 A render-context generation rejects results from incompatible source, dimensions,
 color-space, or settings contexts. A conservative 16 x 16 RGB readback comparison
@@ -120,8 +117,7 @@ production behavior. Assert observable output frames, not only internal counters
 
 Run shared policy tests independently of acceleration hardware. Validate actual
 rendering/inference integration on Windows CPU/TensorRT RTX and native Apple CPU/Core AI;
-Windows evidence does not certify Apple. Final camera/OBS judgment remains with
-the user.
+Windows evidence does not certify Apple. The final judgment is made with a real camera in OBS.
 
 ## Implementation and remaining validation
 
@@ -144,7 +140,6 @@ in [Apple acceleration](APPLE-ACCELERATION.md) and apply the
 
 ## Validation
 
-All six injected faults pass with and without Eyes on macOS (Core AI, also under
-ThreadSanitizer) and on Windows (TensorRT RTX and CPU). The normal and injected
-modules are separate; no injected module is installed. Live-camera/audio
+The injected faults pass with and without Eyes on macOS (Core AI, also under ThreadSanitizer).
+The normal and injected modules are separate; no injected module is installed. Live-camera/audio
 synchronization, subtle scene cuts, and long-session behavior remain unverified.

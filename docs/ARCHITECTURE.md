@@ -82,7 +82,7 @@ live in `src/core/tuning.h`, the shader-only ones at the top of `gpu.cpp`.
 `src/core/engine.cpp` prepares the detector, retouch, and segmenter inputs from the
 RGBA readback (shared resize coordinates, SSE2 quantization on Windows x64; every
 model takes RGB in [-1, 1]). `src/core/face_tracker.h` decides which face region an
-analysis uses ([decision 0023](decisions/0023-landmark-face-tracking.md)): FaceMesh V2 on the
+analysis uses ([decisions](DECISIONS.md#face-tracking)): FaceMesh V2 on the
 CPU follows an established face from the landmarks of the previous analysis.
 MediaPipe BlazeFace (full range, 192 px letterbox) finds a face when none is followed and
 checks about once per second for a clearly larger one. The analysis crop is a square of 1.75
@@ -97,14 +97,14 @@ as RGBA float maps.
 on Windows, and the CPU everywhere. The retouch and segmenter stages share one
 interface (`StageModel`) with an ONNX Runtime and a Core AI implementation. The
 segmenter runs on the selected device (Core AI, TensorRT RTX, or the CPU); detection
-and landmarks always run on the CPU ([decision 0022](decisions/0022-tensorrt-segmenter-and-auxiliary-threads.md)). Device
+and landmarks always run on the CPU ([decisions](DECISIONS.md#models-and-their-placement)). Device
 initialization failures are reported rather than silently switching the whole
 session to CPU; ONNX Runtime can still assign unsupported operators to CPU.
 
 On macOS, Core AI runs the retouch model on the Neural Engine and the segmenter on the
 GPU through a Swift adapter with a C interface (`src/backends/coreai.h`); see
 [Apple acceleration](APPLE-ACCELERATION.md) and
-[decision 0018](decisions/0018-core-ai-replaces-core-ml.md).
+[decisions](DECISIONS.md#apple-core-ai).
 
 Windows loads the pinned provider DLLs from the module directory with restricted
 DLL search flags. One synchronized registration is retained for the module
@@ -118,7 +118,7 @@ CPU mode uses ONNX Runtime's automatic intra-op thread sizing for the detector,
 retouch, and segmenter. FaceMesh and Iris, and with TensorRT RTX or Core AI every CPU
 session, use the auxiliary budget: a quarter of the physical cores, two to four, on
 Windows, and two elsewhere. Each TensorRT session keeps one host thread; see
-[decision 0016](decisions/0016-cpu-inference-thread-sizing.md) and [decision 0022](decisions/0022-tensorrt-segmenter-and-auxiliary-threads.md).
+[decisions](DECISIONS.md#processing-device) and [decisions](DECISIONS.md#models-and-their-placement).
 
 ## Settings
 
@@ -156,7 +156,7 @@ and rate changes keep the current analysis.
 | `native_quality` | Quality | 0 Performance (384 px retouch), 1 High Quality (512 px retouch); the skin mask is 256 px in both | 0 | Structural: model reload |
 | `native_size` | Analysis Resolution | longer side in pixels; list offers 960, 1280, 1920; stored values are clamped to 640 to 1920 | 1280 | Structural: new analysis size |
 | `native_backend` | Processing Device | `beauti::Backend`: 0 Apple (Core AI), 2 CPU, 3 TensorRT RTX, 4 TensorRT RTX Full Precision (1 is unassigned); only the build's choices are offered | first choice of the build when the machine has its accelerator (Core AI on macOS, TensorRT RTX Full Precision on Windows with a supported NVIDIA RTX GPU/driver), else CPU | Structural: provider and model reload |
-| `native_fps` | Target Frame Rate | 0 (automatic), or 1 to 60 analyses per second | 0 | Scheduling only; the compositor and models are unchanged ([decision 0024](decisions/0024-readback-timing-and-automatic-rate.md)) |
+| `native_fps` | Target Frame Rate | 0 (automatic), or 1 to 60 analyses per second | 0 | Scheduling only; the compositor and models are unchanged ([decisions](DECISIONS.md#timing)) |
 
 The effect defaults are the Medium preset. Before 1.0, saved effect settings
 that do not fit the current catalog are reset to these defaults rather than
@@ -171,10 +171,10 @@ hide that message. Recovery clears the blocker and starts a new generation with
 the normal starting/analysis status. No OBS properties are updated from the worker
 or graphics thread. This policy is shared by Windows and Mac, including CPU mode.
 Defaults and their rationale are recorded in
-[decision 0008](decisions/0008-control-defaults.md); the device default follows
-[0003](decisions/0003-nvidia-full-precision-default.md),
-[0004](decisions/0004-apple-core-ml-default-and-cpu-skin-mask.md), and
-[0015](decisions/0015-default-device-follows-the-machine.md).
+[decisions](DECISIONS.md#controls-and-presets); the device default follows
+[decisions](DECISIONS.md#nvidia-tensorrt-rtx),
+[decisions](DECISIONS.md#apple-core-ai), and
+[decisions](DECISIONS.md#processing-device).
 
 ## References and tests
 
@@ -187,7 +187,7 @@ headless process for tests and benchmarks. Model export and preparation live und
 
 See [finishing](FINISHING-OBS.md), [tests](TESTING.md), and
 [provenance](PROVENANCE.md) for exact boundaries, and
-[docs/decisions/](decisions/README.md) for the decisions behind this structure.
+[decisions](DECISIONS.md) for the decisions behind this structure.
 
 ## Optional eye enhancement
 

@@ -89,7 +89,7 @@ if(WIN32)
 endif()
 if(APPLE)
   # Core AI has a Swift interface only. The adapter is a separate library with a C
-  # interface (src/backends/coreai.h) that the engine links; see docs/decisions/0021.
+  # interface (src/backends/coreai.h) that the engine links; see docs/DECISIONS.md.
   enable_language(Swift)
   add_library(beauti-coreai SHARED src/backends/coreai.swift)
   set_target_properties(beauti-coreai PROPERTIES OUTPUT_NAME beauti_coreai INSTALL_NAME_DIR "@rpath")

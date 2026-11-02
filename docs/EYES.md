@@ -18,7 +18,7 @@ eye is mirrored on input and mapped back using MediaPipe's continuous landmark
 coordinates. Only its five iris points are used: V2 lids remain authoritative.
 
 Both models run on the CPU on every backend, with the auxiliary thread budget (two
-threads, on Windows a quarter of the physical cores up to four; decision 0022). FaceMesh is
+threads, on Windows a quarter of the physical cores up to four). FaceMesh is
 loaded with the engine because the skin mask needs it; Iris is loaded on first use
 and kept. While the skin stages are active, Iris runs on the landmark thread right
 after FaceMesh, overlapping the skin segmenter, so Eyes adds no analysis time (M4
@@ -42,9 +42,8 @@ public video with several blinks:
 The Iris model roughly halves the iris-center jitter on camera images, which
 matters for a local color effect. Its own lid contours close less tightly on
 real blinks than V2's (lid area / width² 0.099 versus 0.023 in the same frame),
-so V2's lids are kept. Both models stay on the CPU: with V2 on an Apple accelerator
-(Core ML at the time of the comparison) the path took 5.78 ms against 5.12 ms on
-the CPU, because the Iris graph split into many small accelerator sections.
+so V2's lids are kept. Both models stay on the CPU, because the Iris graph splits into many small
+accelerator sections, which made the path slower than on the CPU.
 Jitter is measured against the known synthetic displacement, not against
 annotated ground truth.
 

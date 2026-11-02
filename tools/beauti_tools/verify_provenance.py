@@ -6,7 +6,7 @@ import hashlib
 import json
 
 from .paths import ROOT
-from .source_files import source_files
+from .source_files import snapshot_files
 
 
 def main():
@@ -23,7 +23,7 @@ def main():
             }
         )
     failures: list[dict[str, str]] = []
-    actual_names = {f.relative_to(ROOT).as_posix() for f in source_files(ROOT) if f != ROOT / 'docs/provenance.json'}
+    actual_names = {f.relative_to(ROOT).as_posix() for f in snapshot_files(ROOT)}
     expected_names = set(provenance['source_snapshot']['files'])
     failures.extend(
         {'path': name, 'reason': 'not in source snapshot'} for name in sorted(actual_names - expected_names)

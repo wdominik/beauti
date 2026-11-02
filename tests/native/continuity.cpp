@@ -34,7 +34,7 @@ TEST_CASE("A good result is shown from acceptance until its hold deadline", "[co
 	const double runtime = GENERATE(30., 100., 600., 3000.);
 	CAPTURE(runtime);
 	Continuity c = primed(runtime);
-	CHECK(c.visible(300 * m)); // The former 200 ms source-age cutoff must not drop a frame.
+	CHECK(c.visible(300 * m)); // A 200 ms source-age cutoff would drop this frame.
 	const auto deadline = c.deadline;
 	CHECK(c.visible(deadline - 1));
 	CHECK_FALSE(c.visible(deadline));

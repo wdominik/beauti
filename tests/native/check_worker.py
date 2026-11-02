@@ -114,7 +114,7 @@ def run(bundle, fixture, width, height, backend, output, quality='fast', profile
             counts = Counter(e['args']['provider'] for e in nodes)
             coverage[path.name] = dict(counts)
             # With TensorRT RTX the retouch model and the skin segmenter run entirely on the
-            # device (docs/decisions/0022); detection and landmarks use the CPU.
+            # device (docs/DECISIONS.md); detection and landmarks use the CPU.
             on_device = path.name.startswith(TENSORRT_MODELS) and backend.startswith('tensorrt')
             expected = 'NvTensorRTRTXExecutionProvider' if on_device else 'CPUExecutionProvider'
             assert counts[expected] > 0, (path.name, counts)

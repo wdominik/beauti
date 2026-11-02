@@ -2,8 +2,8 @@
 
 On macOS, Beauti runs the retouch U-Net on the Neural Engine and the MediaPipe skin
 segmenter on the GPU, in parallel, through Core AI. Core AI ships with macOS 27, which
-is the minimum version ([decision 0018](decisions/0018-core-ai-replaces-core-ml.md));
-the models are described in [decision 0021](decisions/0021-mediapipe-detection-and-segmentation.md).
+is the minimum version ([decisions](DECISIONS.md#apple-core-ai));
+the models are described in [decisions](DECISIONS.md#models-and-their-placement).
 
 ## Configuration
 
@@ -17,7 +17,7 @@ the models are described in [decision 0021](decisions/0021-mediapipe-detection-a
 
 The device setting offers **Apple Acceleration** (Core AI) and **CPU** (ONNX
 Runtime for every model). ONNX Runtime ships in the bundle for the CPU device and
-the CPU models; its Core ML provider is not used.
+the CPU models.
 
 While the retouch model runs, a second thread runs the segmenter and, overlapping
 it, FaceMesh followed by Iris when Eyes is active; both finish before the retouch
@@ -87,10 +87,9 @@ analysis took 28–29 ms. 60 FPS canvases at 4K have not been measured.
 
 ## Output
 
-The retouch maps are closer to the ONNX CPU reference than under Core ML (maximum
-0.0013 against 0.0031). The segmenter's labels are identical to its ONNX CPU result.
-A live-camera review on 2026-10-27 accepted the Core AI retouch and the MediaPipe
-mask in both quality modes.
+The retouch maps stay close to the ONNX CPU reference (maximum 0.0013). The segmenter's labels
+are identical to its ONNX CPU result. A live-camera review accepted the Core AI retouch and the
+MediaPipe mask in both quality modes.
 
 ## Rechecks
 

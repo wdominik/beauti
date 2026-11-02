@@ -14,7 +14,9 @@ appearance references. It records identity and attribution.
 | `buildspec.json` | OBS, SIMDe, ONNX Runtime, and TensorRT RTX dependency versions, archives, hashes |
 | `COPYING`, `licenses/` | License texts and retained notices |
 
-`uv run beauti-verify-provenance` checks the source snapshot in a fresh checkout.
+`uv run beauti-verify-provenance` checks the source snapshot in a fresh checkout. `pyproject.toml` and
+`uv.lock` are not part of the snapshot: they record their own pins and hashes, and automated dependency
+updates change them.
 Add `--models` to check prepared model files. `uv run python -m beauti_tools.models.download --check`
 checks acquired originals and copied export source. Hashes identify the acquired
 bytes.

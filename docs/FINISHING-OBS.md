@@ -14,7 +14,7 @@ output. Background pixels outside the region pass through. Hard semantic
 exclusions and soft confidence weights remain active.
 
 Mask erosion and feathering run through the shared OBS graphics path for every
-inference provider ([decision 0005](decisions/0005-shared-gpu-mask-preparation.md)).
+inference provider ([decisions](DECISIONS.md#models-and-their-placement)).
 The pure CPU reference remains available.
 
 ### Micro Dodge & Burn

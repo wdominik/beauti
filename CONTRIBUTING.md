@@ -3,7 +3,7 @@
 This page is the binding set of conventions for the repository. It follows the
 C++ Core Guidelines, the OBS Studio plugin conventions, PEP 8/621/735 for Python,
 and target-based CMake. Where Beauti deviates, the reason is stated, and the
-decision records under `docs/decisions/` hold the reasoning.
+reasoning is in `docs/DECISIONS.md`.
 
 ## Language
 
@@ -49,7 +49,7 @@ folders; see the note in [docs/BUILD.md](docs/BUILD.md).
 | `models/` | Model identities and acquisition records |
 | `tests/` | Native tests (Catch2 via CTest), pytest suites, libobs fixture runners, numerical references, build-pipeline tests |
 | `third_party/` | Copied build headers and model-export source; byte-identical to upstream |
-| `docs/` | Reference documentation; `docs/decisions/` holds the decision records |
+| `docs/` | Reference documentation; `docs/DECISIONS.md` holds the decisions and their reasons |
 | `licenses/` | Third-party license texts and notices |
 | `.github/` | CI workflow and Dependabot configuration |
 
@@ -137,7 +137,7 @@ and `tests/obs/check_finishing_pixels.py` before and after.
 ## Swift
 
 Swift appears in one file, `src/backends/coreai.swift`, because Core AI has no C or
-Objective-C interface ([decision 0018](docs/decisions/0018-core-ai-replaces-core-ml.md)).
+Objective-C interface ([decisions](docs/DECISIONS.md#apple-core-ai)).
 It stays a thin adapter: load, run, release behind the C functions in
 `src/backends/coreai.h`; all logic, validation, and threading rules live in C++.
 Errors are returned as messages and become exceptions in `CoreAIModel`. Formatting
@@ -232,9 +232,8 @@ request; raw measurement output is not committed.
 US English. `README.md` is for users; `docs/` is reference and describes the
 current state; history lives in `CHANGELOG.md` and Git. Diagrams are Mermaid in
 Markdown. A decision that shapes the product (a default, a provider policy, a
-threading rule, a minimum host version, a tool or language choice) gets a record
-in `docs/decisions/` with context, decision, consequences, and the measurements it
-rests on; a reversal is a new record that supersedes the old one. A new or
+threading rule, a minimum host version, a tool or language choice) goes into
+`docs/DECISIONS.md` with its reason; a reversal changes that section. A new or
 renamed settings key is added to the settings table in `docs/ARCHITECTURE.md`. Every user-visible change adds a line under *Unreleased* in
 `CHANGELOG.md`. UI text lives in `data/locale/en-US.ini`; every new key goes into
 every catalog in `data/locale/` in the same commit (`tests/locale/check_locales.py`

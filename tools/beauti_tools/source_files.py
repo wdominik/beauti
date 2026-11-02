@@ -25,6 +25,18 @@ ROOT_FILES = (
 SOURCE_DIRS = ('src', 'data', 'cmake', 'tools', 'docs', 'models', 'licenses', 'third_party', 'tests')
 
 
+# Not in the identity snapshot: the register itself, and the files that dependency updates change,
+# which record their own pins and hashes.
+SNAPSHOT_EXEMPT = ('docs/provenance.json', 'pyproject.toml', 'uv.lock')
+
+
+def snapshot_files(root: Path | str) -> Iterator[Path]:
+    root = Path(root).resolve()
+    for path in source_files(root):
+        if path.relative_to(root).as_posix() not in SNAPSHOT_EXEMPT:
+            yield path
+
+
 def source_files(root: Path | str) -> Iterator[Path]:
     root = Path(root).resolve()
     for name in ROOT_FILES:

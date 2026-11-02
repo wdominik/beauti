@@ -40,7 +40,7 @@ constexpr size_t kDetectorMaxCandidates = 100;
 // this share of the input brings such a face into the range the model was trained for.
 constexpr float kDetectorSearchShrink = .7f;
 // Square analysis crop around the detected box. BlazeFace boxes are tight; 1.86x gives the
-// crop size the retouch output was validated with (docs/decisions/0021).
+// crop size the retouch output was validated with (docs/DECISIONS.md).
 constexpr float kFaceBoxScale = 1.86f;
 constexpr int kMinFaceSide = FaceTracker::min_face_side;
 // MediaPipe Multiclass segmentation: 256 px input, six classes; face skin is class 3.
@@ -338,7 +338,7 @@ struct Engine::Impl {
 			placement = plan;
 			cache_root = cache;
 			// ORT sizes the pool itself only in CPU mode; accelerator pipelines keep the
-			// bounded auxiliary budget (docs/decisions/0016, 0022).
+			// bounded auxiliary budget (docs/DECISIONS.md).
 			const int cpu_threads = b == CPU ? kAutomaticCpuThreads : auxiliary_cpu_threads();
 			detector = std::make_unique<Session>(env, root / kDetectorModel, plan.detector_backend,
 							     model_cache(kDetectorModel, "detector"), cpu_threads);

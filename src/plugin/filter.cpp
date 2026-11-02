@@ -37,7 +37,7 @@ constexpr uint32_t kMaxSourceSide = 4096;
 constexpr uint32_t kSnapshotSlots = 8, kReadbackSlots = 2;
 constexpr uint32_t kLogFirstFrames = 5, kLogEveryFrames = 90;
 // On-disk layout of the provider cache; change when the layout changes.
-constexpr const char *kCacheNamespace = "native-0.6";
+constexpr const char *kCacheNamespace = "engine";
 }
 OBS_MODULE_USE_DEFAULT_LOCALE("beauti", "en-US")
 MODULE_EXPORT const char *obs_module_description(void)
@@ -178,7 +178,7 @@ struct Filter {
 							  ? "NVIDIAFilesMissingSuffix"
 							  : "CPUFallbackSuffix");
 	// True when this build has an accelerator that the machine lacks: new filters
-	// then default to the CPU and the status line says so (docs/decisions/0015).
+	// then default to the CPU and the status line says so (docs/DECISIONS.md).
 	const bool accelerator_missing =
 		!beauti::accelerator_available() && beauti::backend_choices().front().id != beauti::CPU;
 	std::thread thread;

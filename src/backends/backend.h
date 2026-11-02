@@ -25,7 +25,7 @@ struct ModelPlan {
 	bool coreai = false;
 };
 // Intra-op threads for CPU sessions next to an accelerator: a quarter of the physical
-// cores, two to four, so OBS keeps most of the CPU (docs/decisions/0022). The pure rule
+// cores, two to four, so OBS keeps most of the CPU (docs/DECISIONS.md). The pure rule
 // is auxiliary_threads_for; only Windows measures the cores, elsewhere it stays two.
 int auxiliary_threads_for(unsigned physical_cores);
 int auxiliary_cpu_threads();
@@ -40,7 +40,7 @@ const std::string &accelerator_reason();
 std::string runtime_file_problem(const std::filesystem::path &file, uintmax_t expected_bytes);
 bool is_runtime_file_problem(const std::string &reason);
 // The default for new filters: the build's first choice when its accelerator is
-// available, otherwise CPU (docs/decisions/0015). choose_default is the pure rule.
+// available, otherwise CPU (docs/DECISIONS.md). choose_default is the pure rule.
 uint32_t choose_default(bool accelerator);
 uint32_t default_backend();
 std::vector<BackendChoice> backend_choices();

@@ -6,41 +6,42 @@ All notable changes to Beauti are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-02
+
 ### Changed
-- A processed frame now arrives about one frame earlier at 30 FPS; the delay on an M4 Pro falls
-  from 67 to 34 ms. The status line shows the current delay.
-- **Target Frame Rate** now defaults to **Automatic**, which follows the canvas rate as far as the
-  computer keeps it steady and otherwise uses an even fraction of it. This reduces skipped frames
-  at 4K and 60 FPS. Fixed rates remain available.
-- The filter now follows a face through its landmarks instead of searching every frame. Faces
-  close to the camera and turned faces stay processed, a failure of up to 300 ms is bridged, and
-  the face region and skin mask flicker less on a still face. A face at the image border or close
-  to the camera now reaches the models undistorted, and the effect runs up to the border.
-- Beauti takes less from the rest of the machine. Worker threads sleep between analyses, which on
-  an M4 Pro halves the CPU time; the GPU fields use half floats, which lowers the OBS frame time at
-  4K by about 15%; the analysis is about 10% faster on Apple Acceleration.
-- A face close to the camera no longer overloads OBS at 4K: the finishing fields have a size limit,
-  which on an M4 Pro lowers the frame time in that case from about 53 to about 20 ms.
-- Retouch at 0% stops its model, all effects at 0% stop the analysis after two seconds, and models
-  release their memory after three minutes without frames.
-- Another face takes over only when it stays clearly larger.
-- Eyes fades out when landmarks are briefly missing, instead of switching off.
+- **Face tracking:** The filter follows a face through its landmarks instead of searching every
+  frame. Faces close to the camera and turned faces stay processed, a failure of up to 300 ms is
+  bridged, and the region and skin mask flicker less on a still face. Another face takes over only
+  when it stays clearly larger.
+- **Image border:** A face at the border or close to the camera reaches the models undistorted, and
+  the effect runs up to the border. Eyes fades out when landmarks are briefly missing.
+- **Delay:** A processed frame arrives about one frame earlier at 30 FPS; on an M4 Pro the delay falls
+  from 67 to 34 ms. The status line shows the current delay. If the picture leads the sound, set a
+  matching sync offset for the audio source in OBS.
+- **Target Frame Rate** defaults to **Automatic**, which follows the canvas rate as far as the computer
+  keeps it steady and otherwise uses an even fraction of it. Fixed rates remain available.
+- **Resource use:** On an M4 Pro the CPU time is about halved, the analysis is about 10% faster, and the
+  OBS frame time at 4K is about 15% lower. A face close to the camera at 4K no longer overloads OBS.
+  Retouch at 0% stops its model, all effects at 0% stop the analysis after two seconds, and models release
+  their memory after three minutes without frames.
 
 ### Added
-- `BEAUTI_STATS=1` writes a session summary to the OBS log, with frame age, processed
-  frames, and face losses by reason.
+- `BEAUTI_STATS=1` writes a session summary to the OBS log, with frame age, processed frames, and face
+  losses by reason.
 
 ### Fixed
 - Removing a filter or quitting OBS could hang in rare cases.
-- The target frame rate is now kept when it is not a divisor of the canvas rate; 25 FPS
-  on a 30 FPS canvas used to analyze at 15 FPS.
-- A persistent analysis failure now retries with a growing delay, up to 60 seconds,
-  instead of rebuilding the models every 2 seconds. Changing the device, quality, or
-  analysis resolution retries immediately.
-- On macOS, a failed model load no longer clears the Core AI cache, except for the error
-  that a changed host signature causes.
-- **Tools → Beauti: Add Filter to Selected Source** now shows a message when no source is
-  selected, instead of doing nothing.
+- A target frame rate that is not a divisor of the canvas rate is now kept; 25 FPS on a 30 FPS canvas
+  used to analyze at 15 FPS.
+- A persistent analysis failure retries with a growing delay, up to 60 seconds, instead of rebuilding the
+  models every 2 seconds. Changing the device, quality, or analysis resolution retries immediately.
+- On macOS, a failed model load no longer clears the Core AI cache, except for the error that a changed host
+  signature causes.
+- **Tools → Beauti: Add Filter to Selected Source** shows a message when no source is selected.
+
+### Known limitations
+- This version was tested live on macOS with an M4 Pro. On Windows it is built and passes the automated
+  checks; live tests there, and on the slowest supported Macs, are still open.
 
 ## [0.10.0] - 2026-11-01
 

@@ -18,7 +18,7 @@ import numpy as np
 
 from beauti_tools.bench.protocol import BACKEND_IDS, pack_request, parse_responses
 
-# Map values are in [0, 1]; the tolerances mirror the former 8-bit limits (2/255, 0.01/255).
+# Map values are in [0, 1]; the tolerances are 8-bit limits (2/255, 0.01/255).
 MAX_ERROR = 2 / 255
 MEAN_ERROR = 0.01 / 255
 

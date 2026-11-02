@@ -26,7 +26,7 @@ The NVIDIA runtime is the four-DLL set in `buildspec.json` (`tensorrt-rtx`). Pac
 do not contain it; users install it from NVIDIA ([installation guide](INSTALL.md)).
 No CUDA Toolkit or cuDNN is required. Driver-provided `nvcuda.dll`/`nvml.dll` and the
 current x64 VC++ redistributable remain external prerequisites. See
-[decision 0017](decisions/0017-tensorrt-rtx.md).
+[decisions](DECISIONS.md#nvidia-tensorrt-rtx).
 
 The upstream EP 0.5.0 matrix lists ORT 1.25–1.30. ORT 1.31 is locally validated
 here, beyond that published matrix; this is not an upstream compatibility promise.
@@ -115,7 +115,7 @@ a decision:
    is open ([RELEASE.md](RELEASE.md)).
 2. **ONNX Runtime 1.31.0 on both platforms** is pinned. Windows NVIDIA uses the
    standalone TensorRT RTX EP 0.5.0 on the same CPU archive; the driver floor is
-   CUDA 13 ([decision 0017](decisions/0017-tensorrt-rtx.md)).
+   CUDA 13 ([decisions](DECISIONS.md#nvidia-tensorrt-rtx)).
 3. **Python 3.14** is the pinned line (3.12 was in security-only maintenance). 3.15
    waits for torch wheels.
 4. **opencv-python-headless 5.0** is pinned; the 20 numerical reference tests and the

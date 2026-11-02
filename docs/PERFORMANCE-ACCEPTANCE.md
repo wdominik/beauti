@@ -3,8 +3,7 @@
 The product goal is a convincing, temporally stable real-time image, not bitwise
 identity across all processors. Small image differences are acceptable candidates
 when they buy a substantial measured performance benefit. This is not permission
-to ignore regressions or to assume an unmeasured speedup. No release is to be
-prepared until explicitly requested.
+to ignore regressions or to assume an unmeasured speedup.
 
 The shared [output continuity contract](OUTPUT-CONTINUITY.md) requires bounded
 last-good presentation across temporary inference delays on CPU, NVIDIA, and
@@ -31,8 +30,8 @@ as native Apple evidence. Do not introduce GPU-model-specific optimization rules
 vector arithmetic should retain the original image. Same-backend old/new exact
 comparisons are useful bug detectors for channel swaps, alpha mistakes, padding,
 rounding, and stale buffers. Keep those tests strict where equivalence is intended.
-The recent 72-frame suites compare each backend to its own previous build; they
-do not require CPU, NVIDIA providers, and Core AI to produce identical pixels to each other.
+These compare a backend to its own earlier build; they do not require CPU, NVIDIA providers, and
+Core AI to produce identical pixels to each other.
 Existing cross-provider and shader-reference checks already allow numerical
 differences.
 
@@ -50,10 +49,10 @@ or mask boundaries separately; do not hide them in a full-frame average.
 
 ## Candidates using the existing models
 
-CPU mode uses ORT automatic thread sizing ([decision 0016](decisions/0016-cpu-inference-thread-sizing.md));
+CPU mode uses ORT automatic thread sizing ([decisions](DECISIONS.md#processing-device));
 CPU sessions next to an accelerator use the auxiliary budget
-([decision 0022](decisions/0022-tensorrt-segmenter-and-auxiliary-threads.md)). Most
-intermediate fields use half floats ([decision 0025](decisions/0025-resource-use.md)).
+([decisions](DECISIONS.md#models-and-their-placement)). Most
+intermediate fields use half floats ([decisions](DECISIONS.md#resource-use)).
 Reduced-resolution large-scale finishing statistics remain a separate, unimplemented
 candidate; measure graphics-pass cost first.
 
@@ -71,7 +70,7 @@ TensorRT RTX runs the existing model files with the provider's arithmetic
 defaults. "Full Precision" identifies FP32 model selection, not bit-exact
 arithmetic. There is one NVIDIA policy, with no per-card optimization table.
 The skin segmenter runs on the same device
-([decision 0022](decisions/0022-tensorrt-segmenter-and-auxiliary-threads.md)).
+([decisions](DECISIONS.md#models-and-their-placement)).
 
 ## Measure the tradeoff explicitly
 
@@ -85,12 +84,9 @@ The skin segmenter runs on the same device
 - Evaluate motion: flicker, unstable color, shimmering texture, halos, ghosting,
   delayed masks, and abrupt recovery. Use varied faces, skin tones, lighting,
   head poses, and motion rather than accepting a single still fixture as visual
-  proof. The user retains the final camera/OBS assessment.
-- Require a repeatable, worthwhile gain. A working prioritization target is about
-  20% more processed throughput or reaching sustained 30 processed FPS from the
-  current approximately 25.6 FPS while preserving latency and perceived quality.
-  This is a proposed engineering target, not a user-specified numerical threshold
-  or a performance promise. A few percent does not justify visible artifacts.
+  proof. The final assessment is made with a real camera in OBS.
+- Require a repeatable, worthwhile gain while preserving latency and perceived quality. A few
+  percent does not justify visible artifacts.
 
 Do not alter existing passing reference outputs or blanket-relax correctness
 checks merely to make an approximation pass. Record the quality tradeoff, retain
