@@ -67,7 +67,7 @@ test = [
 models = [
   "numpy==2.4.6",
   "onnx==1.23.2",
-  "onnxruntime==1.31.0",
+  "onnxruntime==1.31.1",
   "torch==2.14.1",
   "protobuf==7.36.2",
   "ml-dtypes==0.6.0",
