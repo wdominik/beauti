@@ -112,7 +112,8 @@ public func beautiCoreAILoad(_ asset: UnsafePointer<CChar>, _ input: UnsafePoint
 	// Core AI keeps compiled models per process and fails with nilError instead of recompiling
 	// once the process's code signature has changed (a rebuilt or updated host). Clearing this
 	// process's cache folder and loading once more recovers; Core AI then rebuilds the cache.
-	if case .failure = result, clearCoreAICache() {
+	// Other failures keep the cache: it may serve other models of this process.
+	if case .failure(let failure) = result, failure.message.contains("nilError"), clearCoreAICache() {
 		result = load()
 	}
 	switch result {

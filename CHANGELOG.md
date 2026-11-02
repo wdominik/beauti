@@ -6,6 +6,18 @@ All notable changes to Beauti are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Removing a filter or quitting OBS could hang in rare cases.
+- The target frame rate is now kept when it is not a divisor of the canvas rate; 25 FPS
+  on a 30 FPS canvas used to analyze at 15 FPS.
+- A persistent analysis failure now retries with a growing delay, up to 60 seconds,
+  instead of rebuilding the models every 2 seconds. Changing the device, quality, or
+  analysis resolution retries immediately.
+- On macOS, a failed model load no longer clears the Core AI cache, except for the error
+  that a changed host signature causes.
+- **Tools → Beauti: Add Filter to Selected Source** now shows a message when no source is
+  selected, instead of doing nothing.
+
 ## [0.10.0] - 2026-11-01
 
 First public version of Beauti, an OBS Studio effect filter for real-time skin

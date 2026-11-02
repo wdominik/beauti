@@ -77,7 +77,7 @@ individual checks establish.
 - **CTest** runs the native tests: `uv run cmake --workflow --preset macos`, or
   `ctest --test-dir build/macos` after a build. They are Catch2 test cases in
   `tests/native/`, compiled into one executable, `beauti-tests`; the CTest names
-  `continuity`, `pixel-quantize`, and `provider-policy` select them by tag, and
+  `continuity`, `pixel-quantize`, `provider-policy`, and `pacing` select them by tag, and
   `build/macos/beauti-tests "[continuity]"` reports a failure with its values.
 - **pytest** runs every Python test: `uv run pytest`. The build-pipeline tests need
   nothing; the numerical reference tests need the reference library

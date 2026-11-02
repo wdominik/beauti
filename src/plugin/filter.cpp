@@ -7,6 +7,8 @@
 #include "engine.h"
 #include "timing.h"
 #include "continuity.h"
+#include "pacing.h"
+#include "notice.h"
 #include <array>
 #include "backend.h"
 #include "paths.h"
@@ -36,7 +38,6 @@ constexpr unsigned kSceneGrid = 16, kSceneSamples = kSceneGrid * kSceneGrid * 3;
 constexpr unsigned kSceneBlockChange = 240, kSceneChangedBlocks = 180;
 constexpr double kSceneMeanChange = 70;
 constexpr uint32_t kLogFirstFrames = 5, kLogEveryFrames = 90;
-constexpr auto kErrorRetryDelay = std::chrono::seconds(2);
 // On-disk layout of the provider cache; change when the layout changes.
 constexpr const char *kCacheNamespace = "native-0.6";
 }
@@ -155,9 +156,11 @@ struct Filter {
 	Readback stages[kReadbackSlots];
 	uint32_t stage_w = 0, stage_h = 0, next_stage = 0, texture_w = 0, texture_h = 0, sequence = 0,
 		 shown_generation = 0;
-	uint64_t last_capture = 0, last_result = 0;
+	beauti::CapturePacer capture_pacer;
+	uint64_t last_result = 0;
 	bool captured_this_tick = false, display_valid = false;
 	std::atomic<bool> stopping{false};
+	std::atomic<uint32_t> settings_revision{0}; // bumped when the device, quality, or analysis size changes
 	std::atomic<uint32_t> generation{1}, retouch{60}, skin_tone{50}, dodge_burn{50}, smooth{50}, eyes{0},
 		long_side{1280}, fps{30}, backend{beauti::default_backend()}, quality{0};
 	std::mutex mutex;
@@ -200,6 +203,8 @@ struct Filter {
 		unsigned count = 0;
 		float measured_fps = 0;
 		std::string last_error;
+		std::chrono::seconds retry_delay = beauti::kFirstRetryDelay;
+		uint32_t retry_revision = 0;
 		int last_face_status = -1;
 #ifdef BEAUTI_CONTINUITY_TEST
 		std::chrono::steady_clock::time_point test_start = std::chrono::steady_clock::now();
@@ -301,6 +306,9 @@ void Filter::inject_test_fault(WorkerState &state, Job &work)
 		std::this_thread::sleep_for(std::chrono::milliseconds(2400));
 	} else if (mode == "error" && state.injected++ == 0) {
 		throw std::runtime_error("Injected continuity test failure");
+	} else if (mode == "errors") {
+		blog(LOG_INFO, "[beauti-test] error at %.3f", test_seconds);
+		throw std::runtime_error("Injected continuity test failure");
 	} else if (mode == "delay" && test_seconds < 8) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(260));
 	}
@@ -342,7 +350,8 @@ void Filter::publish_result(WorkerState &state, Job &&work)
 		has_result = true;
 	}
 }
-// Drop the engine, publish the failure, log it once, and pause before retrying.
+// Drop the engine, publish the failure, log it once, and pause before retrying. A
+// failure that persists waits longer each time; changed settings retry immediately.
 void Filter::report_error(WorkerState &state, const std::exception &error)
 {
 	errors.fetch_add(1);
@@ -356,8 +365,15 @@ void Filter::report_error(WorkerState &state, const std::exception &error)
 	if (state.last_error != error.what())
 		blog(LOG_ERROR, "[beauti] native " BEAUTI_VERSION ": %s", error.what());
 	state.last_error = error.what();
+	const uint32_t revision = settings_revision.load();
+	if (revision != state.retry_revision) {
+		state.retry_revision = revision;
+		state.retry_delay = beauti::kFirstRetryDelay;
+	}
+	const auto delay = state.retry_delay;
+	state.retry_delay = beauti::next_retry_delay(delay);
 	std::unique_lock<std::mutex> lock(mutex);
-	event.wait_for(lock, kErrorRetryDelay, [&] { return stopping.load(); });
+	event.wait_for(lock, delay, [&] { return stopping.load() || settings_revision.load() != revision; });
 }
 void Filter::worker()
 {
@@ -395,6 +411,7 @@ void Filter::worker()
 			}
 #endif
 			state.last_error.clear();
+			state.retry_delay = beauti::kFirstRetryDelay;
 		} catch (const std::exception &e) {
 			report_error(state, e);
 		}
@@ -462,8 +479,12 @@ static void apply_settings(Filter *f, obs_data_t *s)
 			f->job = Job{};
 			f->result = Job{};
 			f->status = obs_module_text("Starting");
+			if (reconfigure)
+				f->settings_revision.fetch_add(1);
 		}
 	}
+	if (reconfigure)
+		f->event.notify_all();
 }
 static void update(void *data, obs_data_t *s) noexcept
 {
@@ -522,8 +543,13 @@ static void *create(obs_data_t *s, obs_source_t *source) noexcept
 static void destroy_filter(void *data)
 {
 	std::unique_ptr<Filter> f(static_cast<Filter *>(data));
-	f->stopping = true;
-	f->event.notify_one();
+	{
+		// Under the mutex: the worker cannot be between its check and its wait, where
+		// the notification would be lost and the join below would never return.
+		std::lock_guard<std::mutex> lock(f->mutex);
+		f->stopping = true;
+	}
+	f->event.notify_all();
 	if (f->thread.joinable())
 		f->thread.join();
 	// Snapshots, readback surfaces, effects, and the compositor are released
@@ -967,7 +993,7 @@ bool Filter::detect_scene_cut(const std::vector<uint8_t> &pixels, uint32_t w, ui
 void Filter::capture_snapshot(const RenderContext &ctx)
 {
 	const uint64_t interval = 1000000000ULL / fps.load(), video_clock = obs_get_video_frame_time();
-	if (!(!last_capture || video_clock < last_capture || video_clock - last_capture + 1000ULL >= interval))
+	if (!capture_pacer.due(video_clock, interval))
 		return;
 	Snapshot *snapshot = nullptr;
 	uint32_t index = 0;
@@ -981,7 +1007,7 @@ void Filter::capture_snapshot(const RenderContext &ctx)
 	auto &slot = stages[next_stage];
 	if (!(snapshot && slot.surface))
 		return;
-	last_capture = video_clock;
+	capture_pacer.taken(video_clock, interval);
 	next_stage = (next_stage + 1) % kReadbackSlots;
 	if (!snapshot->render)
 		snapshot->render.reset(gs_texrender_create(GS_RGBA, GS_ZS_NONE));
@@ -1128,15 +1154,14 @@ static void add_filter_to_selection()
 	obs_source_t *scene_source = obs_frontend_preview_program_mode_active()
 					     ? obs_frontend_get_current_preview_scene()
 					     : obs_frontend_get_current_scene();
-	if (!scene_source)
-		return;
 	obs_source_t *source = nullptr;
 	auto *scene = obs_scene_from_source(scene_source);
 	if (scene)
 		obs_scene_enum_items(scene, selected_source, &source);
 	obs_source_release(scene_source);
 	if (!source) {
-		blog(LOG_WARNING, "[beauti] Select an image or camera source first.");
+		beauti::show_notice(obs_frontend_get_main_window_handle(), "Beauti",
+				    obs_module_text("SelectSourceFirst"));
 		return;
 	}
 	obs_source_t *existing = nullptr;

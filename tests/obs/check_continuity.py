@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-MODES = ('miss', 'misses', 'delay', 'stall', 'error', 'cut')
+MODES = ('miss', 'misses', 'delay', 'stall', 'error', 'cut', 'errors')
 DEFAULT_RUNTIME = Path('/Applications/OBS.app/Contents/Frameworks') if sys.platform == 'darwin' else None
 DEFAULT_BACKEND = 0 if sys.platform == 'darwin' else 4
 
@@ -77,9 +77,21 @@ def run(
             env['BEAUTI_FIXTURE_CUT'] = '1'
         out = output / (mode + '.json')
         with out.with_suffix('.log').open('w') as log:
-            subprocess.run(command(out, '12'), env=env, stdout=log, stderr=log, check=True, timeout=100)
+            seconds = '24' if mode == 'errors' else '12'
+            subprocess.run(command(out, seconds), env=env, stdout=log, stderr=log, check=True, timeout=100)
         log = out.with_suffix('.log').read_text()
         assert 'engine ready:' in log, log[-2000:]
+        if mode == 'errors':
+            # A persistent failure waits 2, 4, then 8 s between attempts, plus the engine rebuild.
+            times = [float(line.split()[-1]) for line in log.splitlines() if '[beauti-test] error at' in line]
+            gaps = np.diff(times)
+            assert len(gaps) >= 3, times
+            for gap, delay in zip(gaps, (2, 4, 8), strict=False):
+                assert delay <= gap < delay + 3, times
+            records[mode] = {'passed': True, 'attempts': times}
+            (output / 'report.json').write_text(json.dumps(records, indent=2) + '\n')
+            print(mode, records[mode], flush=True)
+            continue
         if mode != 'error':
             assert '[beauti] native' not in log, log[-2000:]
         else:

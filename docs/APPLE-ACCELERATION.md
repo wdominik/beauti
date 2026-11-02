@@ -40,8 +40,9 @@ Core AI caches compiled models per process under
 `~/Library/Caches/coreai-cache/<macOS build>/<bundle identifier or executable>` (OBS:
 `com.obsproject.obs-studio`). When the code signature of that process changes, as
 with a rebuilt or updated host, Core AI fails every later load with `nilError`
-instead of recompiling. The adapter therefore clears the process's cache folder
-after a failed load and loads once more; Core AI rebuilds the cache. This was
+instead of recompiling. After that error the adapter clears the process's cache
+folder and loads once more; Core AI rebuilds the cache. Other load failures keep
+the cache. This was
 reproduced by re-signing the bench worker; the release gate in
 [RELEASE.md](RELEASE.md) covers an OBS update.
 
