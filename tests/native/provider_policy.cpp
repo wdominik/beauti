@@ -98,6 +98,11 @@ TEST_CASE("CPU sessions next to an accelerator use a quarter of the cores, two t
 	CHECK(auxiliary_threads_for(4) == 2);
 	CHECK(auxiliary_threads_for(8) == 2);
 	CHECK(auxiliary_threads_for(12) == 3);
+	CHECK(auxiliary_thread_override(nullptr) == 0);
+	CHECK(auxiliary_thread_override("3") == 3);
+	CHECK(auxiliary_thread_override("8") == 8);
+	for (const char *ignored : {"", "0", "9", "-2", "3x", "two"})
+		CHECK(auxiliary_thread_override(ignored) == 0);
 	CHECK(auxiliary_threads_for(16) == 4);
 	CHECK(auxiliary_threads_for(64) == 4);
 	const int threads = auxiliary_cpu_threads();

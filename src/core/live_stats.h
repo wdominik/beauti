@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Opt-in session statistics for live measurements (BEAUTI_STATS=1). The render thread
-// feeds them; nothing here touches OBS. Counters and percentiles cover the whole session.
+// feeds them; nothing here touches OBS. Counters and percentiles cover one segment: the
+// filter starts a new one when the source, the canvas, or a setting it measures changes,
+// so that one OBS session can measure several configurations.
 #pragma once
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <format>
+#include <initializer_list>
 #include <map>
 #include <string>
 namespace beauti {
@@ -22,6 +25,13 @@ public:
 		++buckets[std::min(size_t(clamped), buckets.size() - 1)];
 		++total;
 		largest = std::max(largest, clamped);
+	}
+	// Cleared in place: the buckets are too large for a temporary on the graphics thread's stack.
+	void clear()
+	{
+		buckets.fill(0);
+		total = 0;
+		largest = 0;
 	}
 	uint64_t count() const { return total; }
 	double maximum() const { return largest; }
@@ -43,7 +53,7 @@ public:
 class LiveStats {
 	uint64_t first_tick = 0, last_tick = 0, last_report = 0, lost_at = 0;
 	uint64_t ticks = 0, processed = 0, passthrough = 0, repeated = 0, accepted = 0;
-	uint64_t results = 0, no_face = 0, bridged = 0, scene_cuts = 0, losses = 0;
+	uint64_t results = 0, no_face = 0, bridged = 0, scene_cuts = 0, losses = 0, rate_changes = 0;
 	double startup_ms = -1;
 	bool fresh = false, was_good = false;
 	MsHistogram age, analysis, compose, recovery, readback;
@@ -51,6 +61,18 @@ class LiveStats {
 
 public:
 	static constexpr uint64_t report_interval = 10000000000; // ns
+	// Starts a new segment.
+	void clear()
+	{
+		first_tick = last_tick = last_report = lost_at = 0;
+		ticks = processed = passthrough = repeated = accepted = 0;
+		results = no_face = bridged = scene_cuts = losses = rate_changes = 0;
+		startup_ms = -1;
+		fresh = was_good = false;
+		for (auto *histogram : {&age, &analysis, &compose, &recovery, &readback})
+			histogram->clear();
+		loss_reasons.clear();
+	}
 	// A worker result reached the render thread, accepted or not.
 	void result(bool face, bool landmarks)
 	{
@@ -66,6 +88,8 @@ public:
 		analysis.add(analysis_ms);
 	}
 	void scene_cut() { ++scene_cuts; }
+	// The automatic analysis rate moved to another fraction of the canvas rate.
+	void rate_changed() { ++rate_changes; }
 	void composed(double ms) { compose.add(ms); }
 	// The graphics thread waited this long for a capture it read back at once.
 	void read_back(double ms) { readback.add(ms); }
@@ -107,13 +131,13 @@ public:
 			"age_p50={:.0f} age_p95={:.0f} age_max={:.0f} analysis_p50={:.0f} analysis_p95={:.0f} "
 			"compose_p50={:.0f} compose_p95={:.0f} results={} no_face={} bridged={} scene_cuts={} "
 			"losses={} recovery_p50={:.0f} recovery_max={:.0f} readback_count={} readback_p50={:.0f} "
-			"readback_p95={:.0f} readback_max={:.0f}",
+			"readback_p95={:.0f} readback_max={:.0f} rate_changes={}",
 			double(last_tick - first_tick) / 1e9, ticks, processed, passthrough, accepted, repeated,
 			std::max(startup_ms, 0.0), age.percentile(.5), age.percentile(.95), age.maximum(),
 			analysis.percentile(.5), analysis.percentile(.95), compose.percentile(.5),
 			compose.percentile(.95), results, no_face, bridged, scene_cuts, losses, recovery.percentile(.5),
 			recovery.maximum(), readback.count(), readback.percentile(.5), readback.percentile(.95),
-			readback.maximum());
+			readback.maximum(), rate_changes);
 		for (const auto &[reason, count] : loss_reasons)
 			text += std::format(" loss_{}={}", reason, count);
 		return text;

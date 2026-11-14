@@ -44,7 +44,9 @@ def source_files(root: Path | str) -> Iterator[Path]:
         if path.is_file():
             yield path
     for name in SOURCE_DIRS:
-        for path in sorted((root / name).rglob('*')):
+        # Sorted by path components as written: Path objects compare without case on Windows, which
+        # would record another file order there.
+        for path in sorted((root / name).rglob('*'), key=lambda found: found.relative_to(root).parts):
             if any(part in ('__pycache__', '.DS_Store') for part in path.relative_to(root).parts):
                 continue
             if path.is_symlink():

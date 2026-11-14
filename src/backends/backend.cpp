@@ -4,6 +4,7 @@
 #include "backend.h"
 #include "paths.h"
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <mutex>
@@ -253,8 +254,19 @@ int auxiliary_threads_for(unsigned physical_cores)
 {
 	return std::clamp(int(physical_cores / 4), 2, 4);
 }
+int auxiliary_thread_override(const char *value)
+{
+	if (!value)
+		return 0;
+	char *end = nullptr;
+	const long threads = std::strtol(value, &end, 10);
+	return end != value && *end == '\0' && threads >= 1 && threads <= 8 ? int(threads) : 0;
+}
 int auxiliary_cpu_threads()
 {
+	static const int override = auxiliary_thread_override(std::getenv("BEAUTI_AUX_THREADS"));
+	if (override)
+		return override;
 #ifdef _WIN32
 	static const int threads = [] {
 		DWORD size = 0;

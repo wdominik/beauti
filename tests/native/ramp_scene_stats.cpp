@@ -110,6 +110,28 @@ TEST_CASE("Live statistics count losses by reason and time the recovery", "[live
 	CHECK_THAT(text, Catch::Matchers::ContainsSubstring("recovery_max=200"));
 }
 
+TEST_CASE("A cleared segment reports like a new one", "[live-stats]")
+{
+	beauti::LiveStats stats;
+	constexpr uint64_t ms = 1000000;
+	const auto empty = stats.summary();
+	stats.tick(1 * ms, true, 10, true, "processed");
+	stats.result(false, false);
+	stats.accept(20);
+	stats.scene_cut();
+	stats.rate_changed();
+	stats.composed(5);
+	stats.read_back(3);
+	stats.tick(100 * ms, false, 0, false, "stall");
+	stats.tick(300 * ms, true, 40, true, "processed");
+	CHECK_THAT(stats.summary(), Catch::Matchers::ContainsSubstring("rate_changes=1"));
+	CHECK(stats.summary() != empty);
+	stats.clear();
+	CHECK(stats.summary() == empty);
+	CHECK(stats.tick_count() == 0);
+	CHECK_FALSE(stats.report_due(beauti::LiveStats::report_interval * 2));
+}
+
 TEST_CASE("A report is due every ten seconds", "[live-stats]")
 {
 	beauti::LiveStats stats;

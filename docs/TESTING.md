@@ -67,7 +67,9 @@ The OBS fixture report's sample columns are time, source-frame ID, current ID,
 effect difference, and white-channel fraction (used by the scene-cut test).
 
 Run commands from the repository root. Use a dedicated libobs process for graphics
-checks. The runners do not require the OBS UI or change saved scene collections.
+checks. The runners do not require the OBS UI or change saved scene collections. A staged
+macOS bundle keeps the name `beauti.plugin`: libobs loads a module outside that layout as
+`<name>.so` and fails.
 
 ## Running the tests
 
@@ -273,10 +275,23 @@ Opt-in `BEAUTI_STATS=1` measures a live session without the per-stage output. Ev
 ten seconds and when it is removed, each filter writes one `[beauti-stats]` line with
 cumulative values to the OBS log: ticks, processed and repeated output, frame age,
 analysis and compose time, no-face results, bridged analyses, scene cuts, face
-losses by reason, recovery time, the wait for immediate readbacks, the capture rate, OBS
-frame time, and lagged frames. The Automatic frame rate logs each change as `[beauti-rate]`.
-`tests/obs/live_stats.py LOG` returns the last line of each filter as JSON, and
-`tests/obs/bench_performance.py` records it for its runs.
+losses by reason, recovery time, the wait for immediate readbacks, changes of the automatic
+rate, the capture rate, OBS frame time, and lagged frames. The Automatic frame rate logs each
+change as `[beauti-rate]`.
+
+The values belong to a segment, and each line names what the segment was measured with:
+source and analysis size, canvas rate, device, quality, target rate, and whether Retouch
+and Eyes are above zero. When one of these changes, the filter logs the segment so far and
+starts the next, so one OBS session can measure several configurations without mixing
+them. `tests/obs/live_stats.py LOG` returns the last line of every segment as JSON, and
+`--table` prints them as a Markdown table with the new frames per second (accepted results
+per second), the time to the first processed frame, and the longest recovery; segments
+shorter than `--min-seconds` (5) are left out of the table.
+`tests/obs/bench_performance.py` records the last segment of its runs.
+
+`BEAUTI_AUX_THREADS=1` to `8` replaces the thread budget of the CPU sessions that run next to an
+accelerator, and of the landmark models, for one process ([decisions](DECISIONS.md)). It exists to
+compare budgets on a machine without rebuilding; the `engine ready` log line names the value in use.
 
 `tests/native/run_clip.py` plays a frame sequence through `beauti-bench` without a
 camera or OBS, so that every machine measures the same input: a video file (`--clip`),
@@ -285,8 +300,9 @@ misses and their runs, empty skin masks, face box steps, and the frame-to-frame 
 of the mask and the retouch map. Maps are compared in frame coordinates
 (`tests/native/clip_metrics.py`), so a moving box does not count as flicker. The input
 luma step gives the change that the source itself contains. These are model outputs,
-not composited pixels, and each frame is analyzed as if analysis always kept up. Keep
-clips of real people outside the repository.
+not composited pixels, and each frame is analyzed as if analysis always kept up. `--clip`
+and `--image` expand wildcards themselves, so `clips\*.mov` works in the Windows command
+prompt too. Keep clips of real people outside the repository.
 
 ```sh
 cd tests/native

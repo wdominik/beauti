@@ -97,6 +97,13 @@ struct Readback {
 	Job job;
 };
 enum class SourceState { Ready, Missing, Empty, TooLarge, SourceColor, RenderColor, Unseen };
+// What a statistics segment is measured with (BEAUTI_STATS=1); a change starts the next segment.
+struct StatsConfiguration {
+	uint32_t width = 0, height = 0, analysis_w = 0, analysis_h = 0, backend = 0, quality = 0, target_fps = 0;
+	uint64_t frame_interval = 0;
+	bool retouch = false, eyes = false;
+	bool operator==(const StatsConfiguration &) const = default;
+};
 
 // One filter instance. Fields up to display_valid are render-thread state; from
 // stopping on, the state shared with the worker: atomics are written by update(),
@@ -116,7 +123,8 @@ struct Filter {
 	uint32_t context_w = 0, context_h = 0, context_gen = 0;
 	beauti::SceneCut scene_cut;
 	beauti::LiveStats stats; // fed only with BEAUTI_STATS=1
-	uint32_t lagged_at_start = 0;
+	StatsConfiguration stats_configuration;
+	uint32_t stats_segment = 1, lagged_at_start = 0;
 	const char *last_continuity_reason = nullptr;
 	// Silent pass-through and readback failures are logged when their reason changes
 	// (render thread), so a tester can see why the image stays unprocessed.
@@ -231,6 +239,7 @@ struct Filter {
 	void consume_readback(Readback &slot, RenderContext &ctx);
 	bool capture_snapshot(const RenderContext &ctx);
 	bool present(const RenderContext &ctx);
+	void follow_stats_configuration(const RenderContext &ctx);
 	void log_stats() const;
 	void clear_stages();
 	void reset_display();
@@ -272,8 +281,9 @@ void Filter::ensure_engine(WorkerState &state, const Job &work)
 	state.backend = work.frame.backend;
 	state.quality = work.quality;
 	blog(LOG_INFO,
-	     "[beauti] " BEAUTI_VERSION " engine ready: backend=%u quality=%u; GPU full-resolution compositor",
-	     state.backend, state.quality);
+	     "[beauti] " BEAUTI_VERSION
+	     " engine ready: backend=%u quality=%u auxiliary_threads=%d; GPU full-resolution compositor",
+	     state.backend, state.quality, beauti::auxiliary_cpu_threads());
 }
 // Engine creation can take seconds; analyze the newest frame of the same
 // generation rather than the one that was current when the wait began.
@@ -823,11 +833,14 @@ bool Filter::prepare_context(RenderContext &ctx)
 		if (!captured_this_tick && !paused)
 			analysis_rate.tick(ctx.now, frame_interval, double(obs_get_average_frame_time_ns()) / 1e6);
 		const uint64_t automatic = analysis_rate.interval(frame_interval);
-		if (automatic != capture_interval && beauti::stats_enabled())
+		if (automatic != capture_interval && beauti::stats_enabled()) {
 			blog(LOG_INFO,
 			     "[beauti-rate] automatic analysis rate: %.1f per second (%s; results %.1f of %.1f, analysis p90 %.1f ms, frame %.1f ms)",
 			     1e9 / double(automatic), analysis_rate.reason, analysis_rate.last_results,
 			     analysis_rate.last_expected, analysis_rate.last_analysis, analysis_rate.last_frame_ms);
+			if (capture_interval)
+				stats.rate_changed();
+		}
 		capture_interval = automatic;
 	}
 	continuity.set_cadence(double(capture_interval) / 1e6);
@@ -1155,10 +1168,31 @@ bool Filter::present(const RenderContext &ctx)
 		draw_encoded(texture, ctx.width, ctx.height, true);
 	return true;
 }
+// One OBS session can measure several configurations: when the source, the canvas, or a setting
+// that the statistics depend on changes, the segment so far is logged and the next one starts.
+void Filter::follow_stats_configuration(const RenderContext &ctx)
+{
+	const StatsConfiguration current{ctx.width,          ctx.height,     ctx.scaled_w, ctx.scaled_h,
+					 backend.load(),     quality.load(), fps.load(),   obs_get_frame_interval_ns(),
+					 retouch.load() > 0, eyes.load() > 0};
+	if (current == stats_configuration)
+		return;
+	if (stats.tick_count()) {
+		log_stats();
+		stats.clear();
+		++stats_segment;
+	}
+	stats_configuration = current;
+}
 void Filter::log_stats() const
 {
-	blog(LOG_INFO, "[beauti-stats] " BEAUTI_VERSION " id=%p %s capture_fps=%.1f obs_frame_ms=%.1f lagged=%u",
-	     static_cast<const void *>(this), stats.summary().c_str(),
+	const auto &c = stats_configuration;
+	blog(LOG_INFO,
+	     "[beauti-stats] " BEAUTI_VERSION
+	     " id=%p segment=%u source_w=%u source_h=%u analysis_w=%u analysis_h=%u canvas_fps=%.2f backend=%u quality=%u target_fps=%u retouch=%d eyes=%d %s capture_fps=%.1f obs_frame_ms=%.1f lagged=%u",
+	     static_cast<const void *>(this), stats_segment, c.width, c.height, c.analysis_w, c.analysis_h,
+	     c.frame_interval ? 1e9 / double(c.frame_interval) : 0.0, c.backend, c.quality, c.target_fps,
+	     int(c.retouch), int(c.eyes), stats.summary().c_str(),
 	     capture_interval ? 1e9 / double(capture_interval) : 0.0, double(obs_get_average_frame_time_ns()) / 1e6,
 	     obs_get_lagged_frames() - lagged_at_start);
 }
@@ -1171,6 +1205,8 @@ void Filter::render()
 	// meanwhile is received in this tick instead of being overwritten by the next one
 	// (one pending result slot).
 	const bool tick_start = !captured_this_tick;
+	if (beauti::stats_enabled() && tick_start)
+		follow_stats_configuration(ctx);
 	service_readbacks(ctx);
 	const bool new_analysis = receive_result(ctx);
 	compose_active(ctx, new_analysis);

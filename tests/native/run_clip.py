@@ -108,6 +108,15 @@ def clip_frames(path, fps=None):
     capture.release()
 
 
+def expand(paths):
+    """Expand a wildcard in the file name of paths that name no file: cmd.exe passes them through."""
+    expanded = []
+    for path in paths:
+        matches = [] if path.exists() else sorted(path.parent.glob(path.name))
+        expanded.extend(matches or [path])
+    return expanded
+
+
 def worker_command(bundle, backend, quality, eyes, cache, frame_ms):
     darwin = sys.platform == 'darwin'
     return [
@@ -176,7 +185,7 @@ def main():
     p.add_argument('--eyes', type=int, default=100)
     p.add_argument('--output', type=Path, required=True, help='JSON report')
     p.add_argument('--cache', type=Path, required=True, help='Provider cache directory')
-    p.add_argument('--clip', type=Path, nargs='*', default=[], help='Video files')
+    p.add_argument('--clip', type=Path, nargs='*', default=[], help='Video files; wildcards are expanded')
     p.add_argument('--fps', type=float, help='Analyze a video at this rate')
     p.add_argument('--image', type=Path, nargs='*', default=[], help='Still images for the synthetic scenarios')
     p.add_argument('--width', type=int, help='Width of a .rgba image')
@@ -194,9 +203,9 @@ def main():
         a.output.write_text(json.dumps(report, indent=2) + '\n')
         print(name, json.dumps(summary), flush=True)
 
-    for clip in a.clip:
+    for clip in expand(a.clip):
         record(clip.name, clip_frames(clip, a.fps))
-    for path in a.image:
+    for path in expand(a.image):
         image = load_image(path, a.width, a.height)
         center = face_center(image, a.bundle, a.backend, a.cache)
         for scenario in a.scenario:

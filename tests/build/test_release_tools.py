@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Release helpers: the model archive and the notes taken from the changelog."""
+"""Release helpers: the model archive, the notes taken from the changelog, and the source register."""
 
 import hashlib
 import json
@@ -7,9 +7,11 @@ import zipfile
 
 import pytest
 
+from beauti_tools import update_source_snapshot
 from beauti_tools.models.archive import NOTICES, pack, release_tag, unpack
 from beauti_tools.packaging.release_notes import FOOTER, changelog_section
 from beauti_tools.paths import ROOT
+from beauti_tools.source_files import source_files
 
 
 @pytest.fixture
@@ -79,3 +81,22 @@ def test_the_current_version_can_be_released():
     assert changelog_section((ROOT / 'CHANGELOG.md').read_text(encoding='utf-8'), version)
     assert '{version}' in FOOTER
     assert json.loads((ROOT / 'models/manifest.json').read_text())['files']
+
+
+def test_source_files_keep_one_order_on_every_platform(tmp_path):
+    # Uppercase sorts before lowercase everywhere; Path objects on Windows would mix them.
+    for name in ('docs/alpha.md', 'docs/Zeta.md', 'docs/a/z.md', 'src/x.cpp'):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).touch()
+    (tmp_path / 'README.md').touch()
+    found = [path.relative_to(tmp_path.resolve()).as_posix() for path in source_files(tmp_path)]
+    assert found == ['README.md', 'src/x.cpp', 'docs/Zeta.md', 'docs/a/z.md', 'docs/alpha.md']
+
+
+def test_snapshot_help_leaves_the_register_alone(monkeypatch):
+    register = ROOT / 'docs/provenance.json'
+    before = register.read_bytes()
+    monkeypatch.setattr('sys.argv', ['beauti-update-snapshot', '--help'])
+    with pytest.raises(SystemExit):
+        update_source_snapshot.main()
+    assert register.read_bytes() == before

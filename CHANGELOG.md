@@ -6,6 +6,29 @@ All notable changes to Beauti are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-14
+
+### Added
+- `BEAUTI_AUX_THREADS=1` to `8` overrides the thread budget of the CPU work next to an accelerator for a
+  measurement; the `engine ready` log line names the budget in use.
+
+### Changed
+- `BEAUTI_STATS=1` measures in segments: when the source, the canvas, the device, the quality, the
+  analysis resolution, or the target rate changes, or Retouch or Eyes moves between zero and nonzero,
+  the filter logs the values so far and starts over. Each line names its configuration and counts the
+  changes of the automatic rate, so one OBS session can measure several settings.
+  `tests/obs/live_stats.py --table` prints the segments of a log as a table.
+
+### Fixed
+- `tests/native/run_clip.py` expands wildcards in `--clip` and `--image` itself; the Windows command
+  prompt passed them through and the run failed.
+- `beauti-update-snapshot --help` no longer rewrites the source register, and the register lists the
+  files in the same order on macOS and Windows.
+
+### Known limitations
+- As with 0.11.0, this version was tested live on macOS with an M4 Pro. On Windows it is built and passes
+  the automated checks; live tests there, and on the slowest supported Macs, are still open.
+
 ## [0.11.0] - 2026-11-02
 
 ### Changed

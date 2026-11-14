@@ -30,7 +30,7 @@ Quality, Apple Acceleration); see [demo images](docs/images/README.md).
 
 ## Status
 
-Beauti 0.11.0 is for macOS on Apple silicon and Windows x64. See the [changelog](CHANGELOG.md).
+Beauti 0.11.1 is for macOS on Apple silicon and Windows x64. See the [changelog](CHANGELOG.md).
 
 ## Requirements
 

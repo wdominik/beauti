@@ -82,6 +82,14 @@ def test_scenarios_repeat_exactly():
         assert np.array_equal(first, second)
 
 
+def test_wildcards_expand_without_a_shell(tmp_path):
+    for name in ('b.mov', 'a.mov', 'other.txt'):
+        (tmp_path / name).touch()
+    literal = tmp_path / 'missing.mov'
+    paths = run_clip.expand([tmp_path / '*.mov', tmp_path / 'other.txt', literal])
+    assert paths == [tmp_path / 'a.mov', tmp_path / 'b.mov', tmp_path / 'other.txt', literal]
+
+
 @pytest.mark.needs_bundle
 def test_a_still_scenario_keeps_the_face(bundle, fixture_720p, tmp_path):
     image = run_clip.load_image(fixture_720p, 1280, 720)

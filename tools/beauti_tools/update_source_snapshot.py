@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Refresh the reviewed source identity snapshot."""
 
+import argparse
 import hashlib
 import json
 
@@ -9,6 +10,8 @@ from .source_files import snapshot_files
 
 
 def main():
+    # No options: parsing only keeps --help and a mistyped argument from writing the register.
+    argparse.ArgumentParser(description=__doc__).parse_args()
     path = ROOT / 'docs/provenance.json'
     record = json.loads(path.read_text())
     record['source_snapshot'] = {

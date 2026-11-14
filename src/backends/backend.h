@@ -29,6 +29,9 @@ struct ModelPlan {
 // is auxiliary_threads_for; only Windows measures the cores, elsewhere it stays two.
 int auxiliary_threads_for(unsigned physical_cores);
 int auxiliary_cpu_threads();
+// Measurement override: BEAUTI_AUX_THREADS=1..8 replaces the rule for the process, so that
+// the budget can be compared on a machine without rebuilding. Returns 0 for anything else.
+int auxiliary_thread_override(const char *value);
 // Whether the build's accelerator can run on this machine, probed once: Windows asks
 // the NVIDIA driver for a CUDA 13 driver and a supported RTX GPU and checks the
 // user-installed NVIDIA runtime files; on macOS, Core AI is part of the minimum OS.
