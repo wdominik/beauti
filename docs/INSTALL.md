@@ -68,6 +68,8 @@ NVIDIA version, replace the four files as well.
 - **The filter reports a wrong NVIDIA file version:** download the exact archive
   named above and copy the four files again.
 - **The status line says no acceleration was found:** check your GPU and driver.
+- **The `beauti` folder cannot be replaced:** an OBS process still holds the plugin, possibly
+  left over from a crash. End `obs64.exe` in Task Manager; if it stays, restart Windows.
 
 ## Uninstalling
 

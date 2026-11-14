@@ -57,10 +57,16 @@ def test_the_table_names_the_configuration_and_leaves_out_short_segments():
     assert len(lines) == 4
     first = [cell.strip() for cell in lines[2].strip('|').split('|')]
     assert first[:9] == ['1', '1', '1920x1080', '1280x720', '60', 'Core AI', 'Performance', 'Automatic', '1/1']
-    assert first[10] == '30.0' and first[13] == '34/51'
+    assert first[10] == '-' and first[11] == '30.0' and first[14] == '34/51'
     assert first[-2:] == ['120', '95']
     assert 'High Quality | 30 | 1/1' in lines[3]
     assert len(live_stats.table(live_stats.segments(SEGMENTED), min_seconds=0).splitlines()) == 5
+
+
+def test_new_frames_per_second_leave_out_the_time_without_a_face():
+    log = summary(1, 0, 30, 1, 'seconds=20.0 accepted=300 no_face_seconds=10.0 startup_ms=120')
+    cells = [cell.strip() for cell in live_stats.table(live_stats.segments(log)).splitlines()[2].strip('|').split('|')]
+    assert cells[9:12] == ['20', '10', '30.0']
 
 
 def test_a_log_from_before_segments_still_makes_a_table():

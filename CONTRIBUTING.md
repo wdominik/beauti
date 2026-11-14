@@ -100,7 +100,9 @@ with a message that names what was expected.
 Document for every `Filter` member which thread owns it or which mutex guards it.
 The graphics thread never blocks on inference; the worker never touches GPU
 objects. New shared state goes through the existing mutex or an atomic with a
-comment explaining the ordering. The worker never calls `obs_module_text` or other
+comment explaining the ordering. libobs can remove a filter while the graphics thread
+renders it, so every `obs_source_skip_video_filter` call goes through `Filter::pass_through()`,
+which the `filter_remove` callback locks out. The worker never calls `obs_module_text` or other
 functions that read module state: libobs defers source destruction and can free the
 module's locale table before the worker is joined, so the strings it needs are
 copied when the filter is created.

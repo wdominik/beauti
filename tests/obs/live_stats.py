@@ -58,6 +58,7 @@ def table(rows, min_seconds=5.0):
         'Target FPS',
         'Retouch/Eyes',
         'Seconds',
+        'No face s',
         'New FPS',
         'Capture FPS',
         'Rate changes',
@@ -82,6 +83,8 @@ def table(rows, min_seconds=5.0):
             '-' if 'target_fps' not in row else 'Automatic' if not row['target_fps'] else f'{row["target_fps"]:.0f}'
         )
         seconds = row.get('seconds', 0)
+        # The rate of new frames counts only the time in which a face was in the picture.
+        with_face = seconds - row.get('no_face_seconds', 0)
         cells = (
             str(names.setdefault(row['id'], len(names) + 1)),
             f'{row["segment"]:.0f}',
@@ -93,7 +96,8 @@ def table(rows, min_seconds=5.0):
             target,
             _cell(row, '{:.0f}/{:.0f}', 'retouch', 'eyes'),
             f'{seconds:.0f}',
-            f'{row["accepted"] / seconds:.1f}' if seconds and 'accepted' in row else '-',
+            _cell(row, '{:.0f}', 'no_face_seconds'),
+            f'{row["accepted"] / with_face:.1f}' if with_face > 0 and 'accepted' in row else '-',
             _cell(row, '{:.1f}', 'capture_fps'),
             _cell(row, '{:.0f}', 'rate_changes'),
             _cell(row, '{:.0f}/{:.0f}', 'age_p50', 'age_p95'),

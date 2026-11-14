@@ -79,6 +79,18 @@ TEST_CASE("Histogram percentiles report the bucket's upper edge", "[live-stats]"
 	CHECK(histogram.count() == 102);
 }
 
+TEST_CASE("Histogram percentiles never exceed the largest sample", "[live-stats]")
+{
+	// With few samples the slowest one decides the p95; its bucket's upper edge lies above it.
+	beauti::MsHistogram histogram;
+	for (int i = 0; i < 14; ++i)
+		histogram.add(2);
+	histogram.add(20.4);
+	CHECK(histogram.percentile(.95) == 20.4);
+	CHECK(histogram.percentile(.5) == 3);
+	CHECK(histogram.maximum() == 20.4);
+}
+
 TEST_CASE("Live statistics separate new, repeated, and unprocessed output", "[live-stats]")
 {
 	beauti::LiveStats stats;
@@ -108,6 +120,31 @@ TEST_CASE("Live statistics count losses by reason and time the recovery", "[live
 	CHECK_THAT(text, Catch::Matchers::ContainsSubstring("losses=1"));
 	CHECK_THAT(text, Catch::Matchers::ContainsSubstring("loss_confirmed_no_face=1"));
 	CHECK_THAT(text, Catch::Matchers::ContainsSubstring("recovery_max=200"));
+}
+
+TEST_CASE("Time without a face is neither startup nor recovery", "[live-stats]")
+{
+	beauti::LiveStats stats;
+	constexpr uint64_t ms = 1000000;
+	// Nobody in the picture for a second after the first tick, then a face for two ticks.
+	stats.tick(100 * ms, false, 0, false, "startup");
+	stats.result(false, false);
+	stats.tick(133 * ms, false, 0, false, "startup");
+	stats.tick(1133 * ms, false, 0, false, "startup");
+	stats.result(true, true);
+	stats.tick(1166 * ms, false, 0, false, "startup");
+	stats.tick(1200 * ms, true, 40, true, "processed");
+	CHECK_THAT(stats.summary(), Catch::Matchers::ContainsSubstring("startup_ms=67 "));
+	// The face leaves for five seconds; after its return the effect needs 100 ms.
+	stats.result(false, false);
+	stats.tick(1300 * ms, false, 0, false, "confirmed_no_face");
+	stats.tick(6300 * ms, false, 0, false, "confirmed_no_face");
+	stats.result(true, true);
+	stats.tick(6333 * ms, false, 0, false, "recovering");
+	stats.tick(6400 * ms, true, 40, true, "processed");
+	const auto text = stats.summary();
+	CHECK_THAT(text, Catch::Matchers::ContainsSubstring("recovery_max=100 "));
+	CHECK_THAT(text, Catch::Matchers::ContainsSubstring("no_face_seconds=6.1"));
 }
 
 TEST_CASE("A cleared segment reports like a new one", "[live-stats]")

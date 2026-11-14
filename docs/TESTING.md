@@ -276,8 +276,9 @@ ten seconds and when it is removed, each filter writes one `[beauti-stats]` line
 cumulative values to the OBS log: ticks, processed and repeated output, frame age,
 analysis and compose time, no-face results, bridged analyses, scene cuts, face
 losses by reason, recovery time, the wait for immediate readbacks, changes of the automatic
-rate, the capture rate, OBS frame time, and lagged frames. The Automatic frame rate logs each
-change as `[beauti-rate]`.
+rate, the time without a face, the capture rate, OBS frame time, and lagged frames. The
+Automatic frame rate logs each change as `[beauti-rate]`. Time in which the analysis reports
+no face counts neither as startup nor as recovery: nobody waits for the filter then.
 
 The values belong to a segment, and each line names what the segment was measured with:
 source and analysis size, canvas rate, device, quality, target rate, and whether Retouch
@@ -285,8 +286,8 @@ and Eyes are above zero. When one of these changes, the filter logs the segment 
 starts the next, so one OBS session can measure several configurations without mixing
 them. `tests/obs/live_stats.py LOG` returns the last line of every segment as JSON, and
 `--table` prints them as a Markdown table with the new frames per second (accepted results
-per second), the time to the first processed frame, and the longest recovery; segments
-shorter than `--min-seconds` (5) are left out of the table.
+per second with a face in the picture), the time to the first processed frame, and the longest
+recovery; segments shorter than `--min-seconds` (5) are left out of the table.
 `tests/obs/bench_performance.py` records the last segment of its runs.
 
 `BEAUTI_AUX_THREADS=1` to `8` replaces the thread budget of the CPU sessions that run next to an
@@ -348,6 +349,13 @@ loader ignores PATH. `beauti-gpu-check` links ONNX Runtime directly; copy the
 matching bundle runtime DLLs beside it before selecting TensorRT. Always use a separate
 process and never modify the user's scene collection. The headless warning about
 unavailable frontend menu callbacks is expected.
+
+`BEAUTI_FIXTURE_REMOVE_CYCLES=N` adds and removes N further filters while the video thread
+renders, each after another short time, before the measured run starts. Removal must be
+safe at every point of a render ([decisions](DECISIONS.md#threads)); a crash ends the
+runner with a signal. The pytest entry runs 60 cycles on a 120 FPS canvas four times,
+because the fault needs a removal at the wrong moment: before the fix about one such run
+in four crashed.
 
 The analysis scripts `check_finishing_pixels.py`, `check_slider_transitions.py`,
 and `check_continuity.py` require NumPy; the production plugin does not.

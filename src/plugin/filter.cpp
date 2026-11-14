@@ -125,6 +125,7 @@ struct Filter {
 	beauti::LiveStats stats; // fed only with BEAUTI_STATS=1
 	StatsConfiguration stats_configuration;
 	uint32_t stats_segment = 1, lagged_at_start = 0;
+	uint64_t stats_capture_interval = 0; // as of the last measured tick, so a closing segment reports its own
 	const char *last_continuity_reason = nullptr;
 	// Silent pass-through and readback failures are logged when their reason changes
 	// (render thread), so a tester can see why the image stays unprocessed.
@@ -160,6 +161,14 @@ struct Filter {
 	std::atomic<uint32_t> generation{1}, retouch{60}, skin_tone{50}, dodge_burn{50}, smooth{50}, eyes{0},
 		long_side{1280}, fps{30}, backend{beauti::default_backend()}, quality{0};
 	std::mutex mutex;
+	// obs_source_skip_video_filter reads the filter's parent without a check (libobs 33), and
+	// removing the filter clears parent and target on another thread while the graphics thread
+	// can still be inside this filter's render: libobs takes its reference to the first filter
+	// outside the filter lock. libobs calls filter_remove before it clears them, so that callback
+	// waits here for a pass-through in progress, and none starts afterward. Recursive, because a
+	// source that the pass-through renders may remove this filter on the graphics thread itself.
+	std::recursive_mutex attach_mutex;
+	bool attached = true; // guarded by attach_mutex
 	std::condition_variable event;
 	bool has_job = false, has_result = false, configured = false;
 	uint64_t replaced = 0;
@@ -232,6 +241,7 @@ struct Filter {
 		float retouch, skin_tone, dodge_burn, smooth, eyes;
 	};
 	void render();
+	void pass_through();
 	bool prepare_context(RenderContext &ctx);
 	bool receive_result(const RenderContext &ctx);
 	void compose_active(const RenderContext &ctx, bool new_analysis);
@@ -689,6 +699,29 @@ static obs_properties_t *properties(void *data) noexcept
 	guarded("properties", [&] { fill_properties(p, static_cast<Filter *>(data)); });
 	return p;
 }
+// Draw the unfiltered source. A filter that is no longer attached draws nothing.
+void Filter::pass_through()
+{
+	std::lock_guard<std::recursive_mutex> lock(attach_mutex);
+	if (attached && obs_filter_get_parent(source) && obs_filter_get_target(source))
+		obs_source_skip_video_filter(source);
+}
+static void attach(void *data, bool attached) noexcept
+{
+	guarded("attach", [&] {
+		auto *f = static_cast<Filter *>(data);
+		std::lock_guard<std::recursive_mutex> lock(f->attach_mutex);
+		f->attached = attached;
+	});
+}
+static void filter_added(void *data, obs_source_t *) noexcept
+{
+	attach(data, true);
+}
+static void filter_removed(void *data, obs_source_t *) noexcept
+{
+	attach(data, false);
+}
 // One capture per video tick, even when render() runs twice (preview and program).
 static void tick(void *data, float) noexcept
 {
@@ -808,7 +841,7 @@ bool Filter::prepare_context(RenderContext &ctx)
 		invalidate_context();
 		// libobs requires both parent and target for this call. A detached
 		// filter above has no source to pass through.
-		obs_source_skip_video_filter(source);
+		pass_through();
 		return false;
 	}
 	const double scale = std::min(1.0, double(long_side.load()) / std::max(ctx.width, ctx.height));
@@ -820,6 +853,7 @@ bool Filter::prepare_context(RenderContext &ctx)
 		reset_display();
 		clear_stages();
 		ctx.gen = restart_generation();
+		analysis_rate.restart();
 		context_gen = ctx.gen;
 		last_target = ctx.target;
 		context_w = ctx.width;
@@ -827,7 +861,7 @@ bool Filter::prepare_context(RenderContext &ctx)
 	}
 	const uint32_t requested = fps.load();
 	if (requested) {
-		capture_interval = 1000000000ULL / requested;
+		capture_interval = beauti::fixed_capture_interval(requested, obs_get_frame_interval_ns());
 	} else {
 		const uint64_t frame_interval = obs_get_frame_interval_ns();
 		if (!captured_this_tick && !paused)
@@ -1150,7 +1184,7 @@ bool Filter::present(const RenderContext &ctx)
 		if (beauti::timing_enabled())
 			beauti::timing_log("passthrough", sequence,
 					   last_result ? double(ctx.now - last_result) / 1e6 : 0.0);
-		obs_source_skip_video_filter(source);
+		pass_through();
 		return false;
 	}
 	if (amount < 1 && latest) {
@@ -1193,8 +1227,8 @@ void Filter::log_stats() const
 	     static_cast<const void *>(this), stats_segment, c.width, c.height, c.analysis_w, c.analysis_h,
 	     c.frame_interval ? 1e9 / double(c.frame_interval) : 0.0, c.backend, c.quality, c.target_fps,
 	     int(c.retouch), int(c.eyes), stats.summary().c_str(),
-	     capture_interval ? 1e9 / double(capture_interval) : 0.0, double(obs_get_average_frame_time_ns()) / 1e6,
-	     obs_get_lagged_frames() - lagged_at_start);
+	     stats_capture_interval ? 1e9 / double(stats_capture_interval) : 0.0,
+	     double(obs_get_average_frame_time_ns()) / 1e6, obs_get_lagged_frames() - lagged_at_start);
 }
 void Filter::render()
 {
@@ -1217,6 +1251,7 @@ void Filter::render()
 			lagged_at_start = obs_get_lagged_frames();
 		const double age = active.token ? double(ctx.now - active.frame.captured_ns) / 1e6 : 0;
 		stats.tick(ctx.now, drawn, age, continuity.good, continuity.reason);
+		stats_capture_interval = capture_interval;
 		if (stats.report_due(ctx.now)) {
 			stats.reported(ctx.now);
 			log_stats();
@@ -1232,7 +1267,7 @@ static void render(void *data, gs_effect_t *) noexcept
 		rendered = true;
 	});
 	if (!rendered)
-		obs_source_skip_video_filter(f->source);
+		f->pass_through();
 }
 // A direct menu action also makes setup possible without the Qt filter popup.
 static bool selected_source(obs_scene_t *, obs_sceneitem_t *item, void *data)
@@ -1295,6 +1330,8 @@ MODULE_EXPORT bool obs_module_load(void)
 	info.get_properties = properties;
 	info.video_render = render;
 	info.video_tick = tick;
+	info.filter_add = filter_added;
+	info.filter_remove = filter_removed;
 	obs_register_source(&info);
 	obs_frontend_add_tools_menu_item(obs_module_text("AddFilter"), add_to_selection, nullptr);
 	blog(LOG_INFO, "[beauti] " BEAUTI_VERSION " loaded; full-resolution GPU composite, frame-aligned maps");

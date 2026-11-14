@@ -18,6 +18,13 @@ work of an earlier source, size, or settings context. Shared state is listed in
 The worker never calls OBS module functions; locale strings are copied when the filter is created.
 libobs frees a module's locale table during deferred source destruction while a worker may still run.
 
+A filter can be removed while the graphics thread renders it: libobs 33 takes its reference to the first
+filter outside the filter lock, clears the removed filter's parent and target on the removing thread, and
+reads them without a check in `obs_source_skip_video_filter`. OBS crashed there when a filter was removed
+before its first result, while it still passed the source through. libobs calls `filter_remove` before it
+clears the pointers, so that callback takes the lock that every pass-through holds: it waits for one in
+progress, and afterward the filter draws nothing.
+
 ## Models and their placement
 
 - **Detection:** MediaPipe BlazeFace full range, on the CPU on every device. It runs at a fixed cost,
@@ -116,12 +123,22 @@ The output shows the frame that was analyzed, so the analysis delay is the delay
   first such wait can cost a frame.
 - **Automatic rate:** The default target is the canvas rate divided by a whole number, up to 60 FPS, because
   a target the analysis nearly reaches repeats frames at irregular moments, which looks worse than an even
-  lower rate. The divisor grows only on evidence: results below 90% of the capture rate in two windows in a
-  row, or an OBS frame time above 85% of its budget, the latter not below 15 FPS. It shrinks after 10 stable
-  seconds when the analysis fits within 85% of the shorter interval. An increase that fails within 5 seconds
-  doubles that wait, up to 120 seconds. A canvas above 40 FPS starts at half its rate. The OBS frame time
-  includes everything else OBS renders, so a busy scene can also lower the rate.
-- **Fixed rates** stay available and are followed exactly.
+  lower rate. The divisor grows only on evidence: results below 90% of the capture rate in two one-second
+  windows in a row, or an OBS frame time above 85% of its budget, the latter not below 15 FPS. The first two
+  seconds after a start, a pause, or a rate change are not judged, because models and accelerators are slower
+  then. A canvas above 40 FPS starts at half its rate. The OBS frame time includes everything else OBS renders,
+  so a busy scene can also lower the rate. Below ten analyses per second a window holds so few results that
+  less than one missing result is rounding and does not count. A new device, quality, analysis size, or source
+  starts the rate over as on a new filter: the old rate describes another engine, and a cached engine loads in
+  less time than two windows.
+- **Return to a higher rate:** After 10 seconds the filter attempts the next higher rate, and the same evidence
+  keeps it or takes it back. The analysis time at the lower rate cannot decide this: with Core AI an analysis
+  takes longer the less often it runs (14 ms at 30 analyses per second and 18 ms at 15 on an M4 Pro, 22 and
+  29 ms on an M1 Ultra), so a required margin kept a rate that had dropped once at that level for good. The
+  time only rules out an attempt whose results would miss more than 10% of their ticks even so, and the OBS
+  frame time must leave room. An increase that is taken back within a minute doubles the wait, up to 10
+  minutes; one that holds longer clears it.
+- **Fixed rates** stay available and are followed exactly. A target above the canvas rate analyzes every frame.
 
 ## Resource use
 

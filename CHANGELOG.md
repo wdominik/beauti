@@ -6,6 +6,45 @@ All notable changes to Beauti are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-11-14
+
+### Changed
+- **Automatic** target frame rate returns to a higher rate by attempting it, and keeps it while the results
+  arrive. On a 60 FPS canvas it now reaches 60 on a computer that delivers it; an attempt that fails is
+  repeated less and less often, at most every 10 minutes.
+- `BEAUTI_STATS=1` no longer counts time without a face as startup or recovery time and reports it as
+  `no_face_seconds`. The table of `tests/obs/live_stats.py` shows it and leaves it out of the new frames
+  per second.
+
+### Fixed
+- OBS could crash when a Beauti filter was removed shortly after it was added, before its first processed
+  frame. libobs clears a removed filter's connections while the graphics thread may still render it; the
+  filter now waits for that render and draws nothing afterward.
+- **Automatic** target frame rate could stay at half the canvas rate for good. Loading and the first slow
+  analyses after a start counted as missed frames, and the way back up required an analysis time that Apple's
+  accelerators only reach at the higher rate. After a first start on an M1 Ultra the default settings ran at
+  15 instead of 30 FPS, and High Quality could do the same on an M4 Pro. The filter now ignores the first two
+  seconds after a start, a pause, or a rate change.
+- **Automatic** target frame rate kept the rate of the previous device after a switch. A change from the CPU
+  to an accelerator stayed at about two analyses per second until OBS restarted, and a quick change of device
+  or quality could halve the rate for ten seconds. A new device, quality, analysis size, or source now starts
+  the rate over.
+- On a slow device, **Automatic** could fall below the rate its analysis reaches, because a one-second
+  window with two or three results counted a rounded-off result as missed.
+- A fixed target frame rate above the canvas rate, such as 60 on a 30 FPS canvas, delayed the picture by one
+  frame more than a target at the canvas rate.
+- With `BEAUTI_STATS=1`, the last line of a segment named the capture rate of the next segment, and a 95th
+  percentile of few samples could read above the maximum.
+- `tests/obs/run_windows.py` expected the control layout from before the presets and always failed.
+
+### Known limitations
+- Where an analysis takes about as long as a frame of the canvas, **Automatic** can settle on half the canvas
+  rate and tries the full rate only now and then. A fixed target rate keeps the full rate there, with
+  repeated frames at irregular moments.
+- This version passed the automated OBS checks on an M4 Pro. Its predecessor was tested there with a camera,
+  in a short test on an M1 Ultra, and on Windows with an NVIDIA RTX GPU and a video file as the source. A
+  camera on Windows, OBS next to a game under full GPU load, and the slowest supported Macs are still untested.
+
 ## [0.11.1] - 2026-11-14
 
 ### Added

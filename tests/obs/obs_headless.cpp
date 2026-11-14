@@ -406,6 +406,23 @@ int beauti_main(int argc, char **argv)
 		obs_set_output_source(0, source);
 		start = os_gettime_ns();
 		obs_add_raw_video_callback(nullptr, receive, nullptr);
+		// BEAUTI_FIXTURE_REMOVE_CYCLES adds and removes that many further filters while the video
+		// thread renders. Each stays for another short time, so removals fall on every point of
+		// a render, also before the filter's first result, when it passes the source through.
+		if (const char *cycles = std::getenv("BEAUTI_FIXTURE_REMOVE_CYCLES")) {
+			auto *copy = obs_source_get_settings(filter);
+			for (int i = 0, count = std::atoi(cycles); i < count; ++i) {
+				auto *extra = obs_source_create_private("beauti_filter", "Removed", copy);
+				if (!extra)
+					return 8;
+				obs_source_filter_add(source, extra);
+				std::this_thread::sleep_for(std::chrono::milliseconds((i * 37) % 200));
+				obs_source_filter_remove(source, extra);
+				obs_source_release(extra);
+			}
+			obs_data_release(copy);
+			std::cerr << "REMOVE_CYCLES: " << cycles << "\n";
+		}
 		double seconds = argc > 4 ? std::atof(argv[4]) : 20;
 		int transition = -1;
 		int switch_controls = argc > 12 ? std::atoi(argv[12]) : 0;

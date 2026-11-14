@@ -87,6 +87,24 @@ def test_automatic_rate_keeps_an_even_cadence(harness, bundle, fixture_720p, obs
     assert stats['age_p50'] <= 2 * 1000 / stats['capture_fps'] + 1
 
 
+def test_removing_a_filter_while_it_renders_is_safe(harness, bundle, fixture_720p, obs_runtime, tmp_path):
+    """libobs clears a removed filter's parent while the graphics thread can still render it.
+
+    The crash this guards against needs a removal at the wrong moment: about one run in four
+    hit it before the fix, so several runs make a regression likely to show, not certain.
+    """
+    env = runner_environment(obs_runtime)
+    env['BEAUTI_FIXTURE_REMOVE_CYCLES'] = '60'
+    env['BEAUTI_CANVAS_FPS'] = '120'
+    for attempt in range(4):
+        report = tmp_path / f'remove-{attempt}.json'
+        command = [harness, bundle, fixture_720p, report, 1, 0, DEFAULT_BACKEND, 60, 50, 1280, 720, 0, 0]
+        command = [str(c) for c in command] + ['en-US', 'Beauti', '50', '50']
+        with report.with_suffix('.log').open('w') as log:
+            subprocess.run(command, env=env, stdout=log, stderr=log, check=True, timeout=180)
+        assert 'REMOVE_CYCLES: 60' in report.with_suffix('.log').read_text()
+
+
 def test_effects_at_zero_stop_the_analysis_and_release_the_models(
     continuity_bundle, harness, fixture_720p, obs_runtime, tmp_path, monkeypatch
 ):

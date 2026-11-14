@@ -121,12 +121,16 @@ def main():
         }
         (out / 'measurements.json').write_text(json.dumps(records, indent=2) + '\n')
         ui = json.loads(Path(str(path) + '.ui.json').read_text())
-        assert [(item['name'], item['label']) for item in ui['properties'][:4]] == [
-            ('retouch', 'Retouch'),
-            ('skin_tone', 'Skin Tone'),
-            ('dodge_burn', 'Micro Dodge & Burn'),
-            ('smooth', 'Smooth'),
-        ]
+        # The effect controls sit in labeled sections after the preset list.
+        sections = [(item['name'], item['label']) for item in ui['properties'] if item['name'].endswith('_section')]
+        assert ui['properties'][0]['name'] == 'preset', ui['properties'][0]
+        assert sections[:5] == [
+            ('retouch_section', 'Retouch'),
+            ('tone_section', 'Skin Tone'),
+            ('color_section', 'Local Color Smoothing'),
+            ('dodge_section', 'Micro Dodge & Burn'),
+            ('smooth_section', 'Smooth'),
+        ], sections
         print(name + ': ' + json.dumps(records[name]), flush=True)
 
     run('tensorrt-720p')
